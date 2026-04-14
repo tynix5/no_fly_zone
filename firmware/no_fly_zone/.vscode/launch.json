@@ -1,0 +1,74 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+          "name": "Debug STM32 (OpenOCD)",
+          "type": "cortex-debug",
+          "request": "launch",
+          "cwd": "${workspaceFolder}",
+          "interface": "swd",
+
+          "servertype": "openocd",
+          "executable": "build/blink_make.elf",
+          "device": "STM32F401RE",
+          "gdbPath": "C:/ARMToolchainNew/bin/arm-none-eabi-gdb.exe",
+
+          "configFiles": [
+            "interface/stlink.cfg",
+            "target/stm32f4x.cfg"
+          ],
+
+          "runToEntryPoint": "main",
+        },
+        {
+          "name": "Attach STM32 (OpenOCD)",
+          "type": "cortex-debug",
+          "request": "attach",
+          "cwd": "${workspaceFolder}",
+          "interface": "swd",
+          
+          "servertype": "openocd",
+          "executable": "build/blink_make.elf",
+
+          "device": "STM32F401RE",
+
+          "configFiles": [
+            "interface/stlink.cfg",
+            "target/stm32f4x.cfg"
+          ],
+
+          "gdbPath": "C:/ARMToolchainNew/bin/arm-none-eabi-gdb.exe",
+        },
+        {
+          "name": "Debug STM32 (ST-Link)",
+          "type": "cortex-debug",
+          "request": "launch",
+          "cwd": "${workspaceFolder}",
+          "interface": "swd",
+
+          "servertype": "stlink",
+          "executable": "build/blink_make.elf",
+          "device": "STM32F401RE",
+          "gdbPath": "C:/ARMToolchainNew/bin/arm-none-eabi-gdb.exe",
+
+          "runToEntryPoint": "main",
+        },
+        {
+          "name": "Attach STM32 (ST-Link)",
+          "type": "cortex-debug",
+          "request": "launch",
+          "cwd": "${workspaceFolder}",
+          "interface": "swd",
+
+          "servertype": "stlink",
+          "executable": "build/blink_make.elf",
+          "device": "STM32F401RE",
+          "gdbPath": "C:/ARMToolchainNew/bin/arm-none-eabi-gdb.exe",
+
+          "runToEntryPoint": "main",
+        }
+    ]
+}

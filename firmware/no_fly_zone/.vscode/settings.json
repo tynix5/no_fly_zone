@@ -1,0 +1,15 @@
+{
+    "workbench.colorTheme": "Monokai Pro (Filter Machine)",
+    "workbench.iconTheme": "Monokai Pro (Filter Machine) Icons",
+    "cmake.environment": {
+        "PATH": "c:/Users/tynix/.vscode/extensions/stmicroelectronics.stm32cube-ide-build-cmake-1.43.0/resources/cube-cmake/win32;c:/Users/tynix/.vscode/extensions/stmicroelectronics.stm32cube-ide-core-1.1.0/resources/binaries/win32/x86_64;${env.PATH}"
+    },
+    "stm32cube-ide-core.configuration.productSTM32CubeMX.executablePath": "c:/Users/tynix/AppData/Local/Programs/STM32CubeMX/STM32CubeMX.exe",
+    "stm32cube-ide-clangd.detectExtensionConflicts": false,
+    "stm32cube-ide-build-cmake.ignoreCubeProjectDiscovery": false,
+    "cortex-debug.liveWatchRefreshRate": 1000,
+    "makefile.configureOnOpen": true,
+    "cortex-debug.armToolchainPath": "C:/ARMToolchain/bin",
+    // "cortex-debug.gdbPath": "C:/ARMToolchainNew/bin/arm-none-eabi-gdb.exe",
+    "cortex-debug.openocdPath": "C:/OpenOCD/xpack-openocd-0.12.0-7/bin/openocd.exe"
+}

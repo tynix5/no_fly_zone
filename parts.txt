@@ -1,0 +1,14 @@
+Quadcopter
+CPU: STM32F466RCT6
+IMU (accel + gyro): ICM40609
+Magnetometer: IIS2MDCTR
+Motors:
+ESC:
+Rotors:
+Battery:
+Radio: nRF24L01
+
+Controller
+CPU: STM32L432KC
+Joystick: Gulikit TMR
+Battery:
