@@ -1,0 +1,10 @@
+../Src/i2c1.c:16:6:i2c1_config	1
+../Src/i2c1.c:72:6:i2c1_sw_rst	1
+../Src/i2c1.c:79:6:i2c1_writebyte	6
+../Src/i2c1.c:95:9:i2c1_readbyte	7
+../Src/i2c1.c:118:6:i2c1_readburst	12
+../Src/i2c1.c:157:6:i2c1_start	2
+../Src/i2c1.c:163:6:i2c1_request_stop	1
+../Src/i2c1.c:168:6:i2c1_ack	1
+../Src/i2c1.c:173:6:i2c1_nack	1
+../Src/i2c1.c:178:6:i2c1_release	4

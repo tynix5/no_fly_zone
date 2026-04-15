@@ -1,0 +1,4 @@
+"./Drivers/CMSIS/Device/ST/STM32F4xx/Source/Templates/system_stm32f4xx.o"
+"./Src/i2c1.o"
+"./Src/syscalls.o"
+"./Src/sysmem.o"

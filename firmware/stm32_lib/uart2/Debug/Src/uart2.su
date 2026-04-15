@@ -1,0 +1,6 @@
+../Src/uart2.c:27:6:uart2_set_fcpu	16	static
+../Src/uart2.c:32:17:uart2_config	40	static
+../Src/uart2.c:94:17:uart2_dma1_config	40	static
+../Src/uart2.c:190:17:uart2_write_byte	16	static
+../Src/uart2.c:199:17:uart2_write	24	static
+../Src/uart2.c:209:6:uart2_dma1_write	16	static

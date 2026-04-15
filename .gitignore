@@ -1,3 +1,6 @@
 firmware/no_fly_zone/build
 firmware/no_fly_zone_remote/build
 firmware/no_fly_zone/Drivers
+firmware/no_fly_zone_remote/Drivers
+firmware/no_fly_zone/.vscode
+firmware/no_fly_zone_remote/.vscode

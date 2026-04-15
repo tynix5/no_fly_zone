@@ -13,7 +13,7 @@
 
           "servertype": "openocd",
           "executable": "build/blink_make.elf",
-          "device": "STM32F401RE",
+          "device": "STM32F446RCT",
           "gdbPath": "C:/ARMToolchainNew/bin/arm-none-eabi-gdb.exe",
 
           "configFiles": [
@@ -33,7 +33,7 @@
           "servertype": "openocd",
           "executable": "build/blink_make.elf",
 
-          "device": "STM32F401RE",
+          "device": "STM32F446RCT",
 
           "configFiles": [
             "interface/stlink.cfg",
@@ -51,7 +51,7 @@
 
           "servertype": "stlink",
           "executable": "build/blink_make.elf",
-          "device": "STM32F401RE",
+          "device": "STM32F446RCT",
           "gdbPath": "C:/ARMToolchainNew/bin/arm-none-eabi-gdb.exe",
 
           "runToEntryPoint": "main",
@@ -65,7 +65,7 @@
 
           "servertype": "stlink",
           "executable": "build/blink_make.elf",
-          "device": "STM32F401RE",
+          "device": "STM32F446RCT",
           "gdbPath": "C:/ARMToolchainNew/bin/arm-none-eabi-gdb.exe",
 
           "runToEntryPoint": "main",

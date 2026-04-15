@@ -1,0 +1,10 @@
+../Src/i2c1.c:16:6:i2c1_config	8	static
+../Src/i2c1.c:72:6:i2c1_sw_rst	4	static
+../Src/i2c1.c:79:6:i2c1_writebyte	16	static
+../Src/i2c1.c:95:9:i2c1_readbyte	16	static
+../Src/i2c1.c:118:6:i2c1_readburst	24	static
+../Src/i2c1.c:157:6:i2c1_start	4	static
+../Src/i2c1.c:163:6:i2c1_request_stop	4	static
+../Src/i2c1.c:168:6:i2c1_ack	4	static
+../Src/i2c1.c:173:6:i2c1_nack	4	static
+../Src/i2c1.c:178:6:i2c1_release	24	static,ignoring_inline_asm
