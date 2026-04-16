@@ -1,6 +1,6 @@
 #include "app.h"
+#include "main.h"
 #include "nrf24.h"
-#include "drivers.h"
 #include "stm32l432xx.h"
 #include "stm32l4xx_hal.h"
 
@@ -11,21 +11,15 @@ static RadioParams tx = {
 
     .this_addr = RF_TX_ADDR,
     .node_addr = RF_RX_ADDR,
-    .spi_transfer = spi1_transfer,
-    .spi_transfer_byte = spi1_transfer_byte,
-    .rf_enable = ce_high,
-    .rf_disable = ce_low,
+    .ce_gpio = RF_CE_GPIO_Port,
+    .ce_pin = RF_CE_Pin,
     .delay_ms = HAL_Delay,
 };
 
-void app_init(void)
+void app_init(SPI_HandleTypeDef * hspi)
 {
-    spi1_init();
+    tx.hspi = hspi;
     rf_init(tx);
-
-    // ce output
-    GPIOA->MODER &= ~GPIO_MODER_MODE8;
-    GPIOA->MODER |= GPIO_MODER_MODE8_0;
 
 }
 
@@ -37,14 +31,4 @@ void app(void)
         rf_send(tx, &packet, 1);
         HAL_Delay(250);
     }
-}
-
-void ce_low(void)
-{
-    GPIOA->ODR &= ~GPIO_ODR_OD8;
-}
-
-void ce_high(void)
-{
-    GPIOA->ODR |= GPIO_ODR_OD8;
 }

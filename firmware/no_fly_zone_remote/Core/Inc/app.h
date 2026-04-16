@@ -2,11 +2,9 @@
 #define APP_H_
 
 #include <stdint.h>
+#include "stm32l4xx_hal.h"
 
-void app_init(void);
+void app_init(SPI_HandleTypeDef * hspi);
 void app(void);
-
-void ce_low(void);
-void ce_high(void);
 
 #endif
