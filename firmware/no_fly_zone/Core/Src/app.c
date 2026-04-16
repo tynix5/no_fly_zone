@@ -3,8 +3,20 @@
 #include "stm32f446xx.h"
 #include "stm32f4xx_hal.h"
 
-static RadioParams receiver;         // only app.c functions can access testing
 
+#define RF_TX_ADDR                 0xC2C2C2C2
+#define RF_RX_ADDR                 0xE7E7E7E7
+
+static RadioParams rx = {
+
+    .this_addr = RF_RX_ADDR,
+    .node_addr = RF_TX_ADDR,
+    .spi_transfer = spi1_transfer,
+    .spi_transfer_byte = spi1_transfer_byte,
+    .rf_enable = ce_high,
+    .rf_disable = ce_low,
+    .delay_ms = HAL_Delay,
+};
 
 /* Sysclk running at 168 MHz */
 /* HCLK running at 168 MHz */
@@ -19,14 +31,7 @@ static RadioParams receiver;         // only app.c functions can access testing
 void app_init(void)
 {
     spi1_init();
-    receiver.this_addr = 0xE7E7E7E7;
-    receiver.node_addr = 0xC2C2C2C2;
-    receiver.spi_transfer = spi1_transfer;
-    receiver.spi_transfer_byte = spi1_transfer_byte;
-    receiver.ce_high = ce_high;
-    receiver.ce_low = ce_low;
-    receiver.delay_ms = HAL_Delay;
-    ce_low();
+    nrf_init(rx);
 
     // PD2
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIODEN;
@@ -38,10 +43,10 @@ void app(void)
 {
     while (1)
     {
-        nrf_listen(receiver, 0xffffffff);
+        rf_listen(rx, 0xffffffff);
 
         uint8_t packet, len;
-        nrf_receive(receiver, &packet, &len);
+        rf_receive(rx, &packet, &len);
         if (len == 1 && packet == 0x5e)
             GPIOD->ODR ^= GPIO_ODR_OD2;
     }

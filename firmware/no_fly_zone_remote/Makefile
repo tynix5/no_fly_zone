@@ -62,7 +62,8 @@ Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_exti.c \
 Core/Src/system_stm32l4xx.c \
 Core/Src/sysmem.c \
 Core/Src/syscalls.c \
-Core/Src/app.c
+Core/Src/app.c \
+Core/Src/drivers.c
 
 C_SOURCES += $(LIB_DIR)/nrf24.c
 
