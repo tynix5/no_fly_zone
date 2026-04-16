@@ -1,3 +1,3 @@
-[submodule "stm32_lib"]
+[submodule "firmware/stm32_lib"]
 	path = firmware/stm32_lib
 	url = https://github.com/tynix5/stm32_lib.git
