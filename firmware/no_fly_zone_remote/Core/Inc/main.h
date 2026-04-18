@@ -65,6 +65,8 @@ void Error_Handler(void);
 #define PITCH_ADC_GPIO_Port GPIOA
 #define ROLL_ADC_Pin GPIO_PIN_3
 #define ROLL_ADC_GPIO_Port GPIOA
+#define RF_CS_Pin GPIO_PIN_4
+#define RF_CS_GPIO_Port GPIOA
 #define BATT_LVL_Pin GPIO_PIN_0
 #define BATT_LVL_GPIO_Port GPIOB
 #define RF_CE_Pin GPIO_PIN_8
