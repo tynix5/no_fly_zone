@@ -17,7 +17,17 @@ static RadioParams rx = {
     .this_addr = RF_RX_ADDR,
     .node_addr = RF_TX_ADDR,
     .delay_ms = HAL_Delay,
+    .power_level = RF_PWR_0DBM,
+    .data_rate = RF_DR_2MBPS,
+    .freq_ch = 2,
+    .dynamic_payloads = USE_DYNAMIC_PAYLOAD,
+    .use_acks = NO_ACKS
 };
+
+typedef struct {
+
+    uint8_t batt_lvl;
+} AckParams;
 
 /* Sysclk running at 168 MHz */
 /* HCLK running at 168 MHz */
@@ -39,14 +49,13 @@ void app(void)
 {
     while (1)
     {
-        if (rf_listen(&rx, 0xffffffff))
+        if (rf_listen_no_ack(&rx, 0xffffffff))
         {
-            uint8_t packet, len;
-            rf_receive(&rx, &packet, &len);
+            uint8_t packet[3], len;
+            rf_receive(&rx, packet, &len);
 
-            if (len == 1 && packet == 0x5e)
+            if (len == 3 && packet[0] == 0x5e && packet[1] == 0x54 && packet[2] == 0x21)
                 HAL_GPIO_TogglePin(USER_GPIO_Port, USER_Pin);
         }
-
     }
 }

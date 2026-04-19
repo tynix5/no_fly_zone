@@ -73,6 +73,8 @@ void Error_Handler(void);
 #define RF_CE_GPIO_Port GPIOA
 #define RF_IRQ_Pin GPIO_PIN_9
 #define RF_IRQ_GPIO_Port GPIOA
+#define USER_Pin GPIO_PIN_3
+#define USER_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

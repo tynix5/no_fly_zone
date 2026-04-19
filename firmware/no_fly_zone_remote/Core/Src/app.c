@@ -7,8 +7,20 @@
 #define RF_TX_ADDR                 0xE7E7E7E7
 #define RF_RX_ADDR                 0xE7E7E7E7
 
-static RadioParams tx = {
+/*
+typedef struct {
 
+    uint8_t pitch;
+    uint8_t throttle;
+    uint8_t yaw;
+    uint8_t roll;
+} PacketParams;
+
+static void rf_serialize_packet(PacketParams * packet);
+*/
+
+static RadioParams tx = {
+    
     .this_addr = RF_TX_ADDR,
     .node_addr = RF_RX_ADDR,
     .ce_gpio = RF_CE_GPIO_Port,
@@ -16,6 +28,11 @@ static RadioParams tx = {
     .cs_gpio = RF_CS_GPIO_Port,
     .cs_pin = RF_CS_Pin,
     .delay_ms = HAL_Delay,
+    .power_level = RF_PWR_0DBM,
+    .data_rate = RF_DR_2MBPS,
+    .freq_ch = 2,
+    .dynamic_payloads = USE_DYNAMIC_PAYLOAD,
+    .use_acks = NO_ACKS
 };
 
 void app_init(SPI_HandleTypeDef * hspi)
@@ -29,8 +46,16 @@ void app(void)
 {
     while (1)
     {
-        uint8_t packet = 0x5e;
-        rf_send(&tx, &packet, 1);
+        /*
+        uint8_t response[MAX_PKT_SIZE];
+        uint8_t rlen;
+        rf_send_w_ack(&tx, packet, 3, response, &rlen);
+        
+        if (rlen == 2 && response[0] == 0x05 && response[1] == 0x02)
+        */
+        uint8_t packet[3] = {0x5e, 0x54, 0x21};
+        rf_send_w_no_ack(&tx, packet, 3);
+        HAL_GPIO_TogglePin(USER_GPIO_Port, USER_Pin);
         HAL_Delay(250);
     }
 }
