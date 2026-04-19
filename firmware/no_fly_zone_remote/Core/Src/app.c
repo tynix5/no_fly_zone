@@ -31,31 +31,28 @@ static RadioParams tx = {
     .power_level = RF_PWR_0DBM,
     .data_rate = RF_DR_2MBPS,
     .freq_ch = 2,
-    .dynamic_payloads = USE_DYNAMIC_PAYLOAD,
-    .use_acks = NO_ACKS
+    .payload_type = DYNAMIC_PAYLOAD,
+    .ack = ENABLE_ACK
 };
 
 void app_init(SPI_HandleTypeDef * hspi)
 {
     tx.hspi = hspi;
     rf_init(&tx);
-
 }
 
 void app(void)
 {
     while (1)
     {
-        /*
-        uint8_t response[MAX_PKT_SIZE];
+        uint8_t packet[3] = {0x5e, 0x54, 0x21};
+        uint8_t response[2];
         uint8_t rlen;
-        rf_send_w_ack(&tx, packet, 3, response, &rlen);
+        rf_send(&tx, packet, 3, response, &rlen); 
         
         if (rlen == 2 && response[0] == 0x05 && response[1] == 0x02)
-        */
-        uint8_t packet[3] = {0x5e, 0x54, 0x21};
-        rf_send_w_no_ack(&tx, packet, 3);
-        HAL_GPIO_TogglePin(USER_GPIO_Port, USER_Pin);
+            HAL_GPIO_TogglePin(USER_GPIO_Port, USER_Pin);
+
         HAL_Delay(250);
     }
 }

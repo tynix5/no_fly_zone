@@ -20,8 +20,8 @@ static RadioParams rx = {
     .power_level = RF_PWR_0DBM,
     .data_rate = RF_DR_2MBPS,
     .freq_ch = 2,
-    .dynamic_payloads = USE_DYNAMIC_PAYLOAD,
-    .use_acks = NO_ACKS
+    .payload_type = DYNAMIC_PAYLOAD,
+    .ack = ENABLE_ACK
 };
 
 typedef struct {
@@ -49,13 +49,15 @@ void app(void)
 {
     while (1)
     {
-        if (rf_listen_no_ack(&rx, 0xffffffff))
-        {
-            uint8_t packet[3], len;
-            rf_receive(&rx, packet, &len);
+        
+        uint8_t packet[3], len;
+        uint8_t response[2] = {0x05, 0x02};
 
-            if (len == 3 && packet[0] == 0x5e && packet[1] == 0x54 && packet[2] == 0x21)
-                HAL_GPIO_TogglePin(USER_GPIO_Port, USER_Pin);
+        if (rf_listen(&rx, 100000) == RF_SUCCESS)
+        {
+           rf_receive(&rx, packet, &len, response, 2);
+           if (len == 3 && packet[0] == 0x5e && packet[1] == 0x54 && packet[2] == 0x21)
+                   HAL_GPIO_TogglePin(USER_GPIO_Port, USER_Pin);
         }
     }
 }
