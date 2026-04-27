@@ -32,7 +32,7 @@ OPT = -Og
 BUILD_DIR = build
 
 # custom libraries
-LIB_DIR = ../../../../lib/nrf24l01
+LIB_DIR = ../stm32_lib/nrf24l01
 
 ######################################
 # source

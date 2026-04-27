@@ -8,6 +8,8 @@
 #define RF_TX_ADDR                 0xC2C2C2C2
 #define RF_RX_ADDR                 0xE7E7E7E7
 
+uint8_t count = 0;
+
 static RadioParams rx = {
 
     .ce_gpio = RF_CE_GPIO_Port,
@@ -55,8 +57,17 @@ void app(void)
 
         if (rf_listen(&rx, 100000) == RF_SUCCESS)
         {
-           rf_receive(&rx, packet, &len, response, 2);
-           if (len == 3 && packet[0] == 0x5e && packet[1] == 0x54 && packet[2] == 0x21)
+            count++;
+            if (count == 10)
+            {
+                count = 0;
+                rf_receive(&rx, packet, &len, response, 2);
+            }
+            else
+            {
+                rf_receive(&rx, packet, &len, response, 0);
+            }
+            if (len == 3 && packet[0] == 0x5e && packet[1] == 0x54 && packet[2] == 0x21)
                    HAL_GPIO_TogglePin(USER_GPIO_Port, USER_Pin);
         }
     }
