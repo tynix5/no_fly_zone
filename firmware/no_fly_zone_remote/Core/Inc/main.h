@@ -57,24 +57,28 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define THROTTLE_ADC_Pin GPIO_PIN_0
-#define THROTTLE_ADC_GPIO_Port GPIOA
-#define YAW_ADC_Pin GPIO_PIN_1
-#define YAW_ADC_GPIO_Port GPIOA
 #define PITCH_ADC_Pin GPIO_PIN_2
 #define PITCH_ADC_GPIO_Port GPIOA
 #define ROLL_ADC_Pin GPIO_PIN_3
 #define ROLL_ADC_GPIO_Port GPIOA
-#define RF_CS_Pin GPIO_PIN_4
-#define RF_CS_GPIO_Port GPIOA
+#define THROTTLE_ADC_Pin GPIO_PIN_4
+#define THROTTLE_ADC_GPIO_Port GPIOA
 #define BATT_LVL_Pin GPIO_PIN_0
 #define BATT_LVL_GPIO_Port GPIOB
+#define YAW_ADC_Pin GPIO_PIN_1
+#define YAW_ADC_GPIO_Port GPIOB
 #define RF_CE_Pin GPIO_PIN_8
 #define RF_CE_GPIO_Port GPIOA
 #define RF_IRQ_Pin GPIO_PIN_9
 #define RF_IRQ_GPIO_Port GPIOA
-#define USER_Pin GPIO_PIN_3
-#define USER_GPIO_Port GPIOB
+#define RF_CS_Pin GPIO_PIN_10
+#define RF_CS_GPIO_Port GPIOA
+#define USER_LED_Pin GPIO_PIN_15
+#define USER_LED_GPIO_Port GPIOA
+#define TEST_Pin GPIO_PIN_3
+#define TEST_GPIO_Port GPIOB
+#define ENC_SW_Pin GPIO_PIN_4
+#define ENC_SW_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
