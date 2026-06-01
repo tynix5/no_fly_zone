@@ -75,8 +75,6 @@ void Error_Handler(void);
 #define RF_CS_GPIO_Port GPIOA
 #define USER_LED_Pin GPIO_PIN_15
 #define USER_LED_GPIO_Port GPIOA
-#define TEST_Pin GPIO_PIN_3
-#define TEST_GPIO_Port GPIOB
 #define ENC_SW_Pin GPIO_PIN_4
 #define ENC_SW_GPIO_Port GPIOB
 
