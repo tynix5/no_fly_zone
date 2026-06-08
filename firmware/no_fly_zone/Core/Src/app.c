@@ -1,14 +1,12 @@
 #include "app.h"
 #include "main.h"
 #include "nrf24.h"
+#include "rf_structs.h"
 #include "stm32f446xx.h"
 #include "stm32f4xx_hal.h"
 
-
 #define RF_TX_ADDR                 0xC2C2C2C2
 #define RF_RX_ADDR                 0xE7E7E7E7
-
-uint8_t count = 0;
 
 static RadioParams rx = {
 
@@ -26,10 +24,13 @@ static RadioParams rx = {
     .ack = ENABLE_ACK
 };
 
-typedef struct {
+// only interrupt on data received
+static RadioIrqs irqs = {
 
-    uint8_t batt_lvl;
-} AckParams;
+    .rx_dr = INT_EN,
+    .tx_ds = INT_DIS,
+    .max_rt = INT_DIS
+};
 
 /* Sysclk running at 168 MHz */
 /* HCLK running at 168 MHz */
@@ -41,48 +42,50 @@ typedef struct {
 /* APB2 timer clocks running at 168 MHz */
 /* USB running at 48 MHz */
 
-void blink(void)
+void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTypeDef * hspi2, SPI_HandleTypeDef * hspi3, TIM_HandleTypeDef * htim2, UART_HandleTypeDef * huart1, PCD_HandleTypeDef * husb);
 {
-    HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_SET);
-    HAL_Delay(1000);
-    HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_RESET);
-    HAL_Delay(1000);
-}
-
-void app_init(SPI_HandleTypeDef * hspi)
-{
-    rx.hspi = hspi;
+    rx.hspi = hspi3;
     rf_init(&rx);
 
-    HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_SET);
-    HAL_Delay(1000);
-    HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_RESET);
-    HAL_Delay(1000);
-
+    rf_set_irq(rx, irqs);
 }
 
 void app(void)
 {
+    uint8_t count = 0;
+
+    AckParams ack = {.key = ACK_KEY, .rx_batt_lvl = 43};
+    PacketParams packet;
+
+    uint8_t packet_len;
     while (1)
     {
-        
-        uint8_t packet[3], len;
-        uint8_t response[2] = {0x05, 0x02};
-
+        /******** Move all radio listen functions to EXTI */
+        /* Create simple complementary filter */
+        /* Create IMU library functions for filtering accel, gyro data */
+        /* Create PWM generator for motor speeds */
+        /* Create PID loop for quadcopter controller */
         if (rf_listen(&rx, 100000) == RF_SUCCESS)
         {
             count++;
             if (count == 10)
             {
+                // send ack
                 count = 0;
-                rf_receive(&rx, packet, &len, response, 2);
+                rf_receive(&rx, (uint8_t *) &packet, &packet_len, (uint8_t *) &ack, ACK_SIZE);
             }
             else
             {
-                rf_receive(&rx, packet, &len, response, 0);
+                // send no ack
+                rf_receive(&rx, (uint8_t *) &packet, &packet_len, (uint8_t *) &ack, 0);
             }
-            if (len == 3 && packet[0] == 0x5e && packet[1] == 0x54 && packet[2] == 0x21)
-                   HAL_GPIO_TogglePin(USER_GPIO_Port, USER_Pin);
+            if (packet_len == PACKET_SIZE && packet.key == PACKET_KEY && packet.throttle > 128)
+                HAL_GPIO_TogglePin(USER_GPIO_Port, USER_Pin);
         }
     }
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+
 }
