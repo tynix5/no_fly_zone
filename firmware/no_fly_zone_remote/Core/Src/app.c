@@ -3,6 +3,7 @@
 #include "nrf24.h"
 #include "ssd1306.h"
 #include "oled_helper.h"
+#include "rf_structs.h"
 #include "stm32l432xx.h"
 #include "stm32l4xx_hal.h"
 #include <math.h>
@@ -18,30 +19,11 @@
 #define ENC_UPDATE_T                250
 
 
-typedef struct {
-
-    uint8_t pitch;
-    uint8_t throttle;
-    uint8_t yaw;
-    uint8_t roll;
-    float p;
-    float i;
-    float d;
-
-} PacketParams;
-
-typedef struct {
-
-    uint8_t batt_lvl;
-
-} AckParams;
-
-static void serialize_rf_packet(PacketParams * packet);
-
-
 uint16_t adc_conversions[NUM_ADC_CONV];
-uint32_t batt_lvl;
+uint8_t tx_batt_lvl, rx_batt_lvl;
 uint8_t joysticks[4];
+
+float kp, ki, kd;
 
 volatile uint8_t adc_ready = 0;
 int32_t enc_ticks = 0, last_enc_ticks = 0;
@@ -67,6 +49,7 @@ static RadioParams tx = {
     .ack = ENABLE_ACK
 };
 
+static void rf_send_packet(PacketParams * packet, AckParams * ack);
 static void shutdown();
 
 void app_init(ADC_HandleTypeDef * hadc, DMA_HandleTypeDef * hdma, I2C_HandleTypeDef * hi2c, SPI_HandleTypeDef * hspi, TIM_HandleTypeDef * htim, TIM_HandleTypeDef * henc, PCD_HandleTypeDef * husb)
@@ -80,19 +63,23 @@ void app_init(ADC_HandleTypeDef * hadc, DMA_HandleTypeDef * hdma, I2C_HandleType
     HAL_ADC_Start_DMA(hadc, (uint32_t *)adc_conversions, NUM_ADC_CONV);
 
     // start ADC conversions
-    HAL_TIM_Base_Start(htim);
+    HAL_TIM_Base_Start(htim);       // 25Hz
 
     // start encoder
     HAL_TIM_Encoder_Start(henc, TIM_CHANNEL_ALL);
     
     ssd1306_clear();
     ssd1306_update();
+
+    // check max send rate if only sending acks ~every sec
 }
 
 void app(void)
 {
     while (1)
     {
+        // need to find a way to make update rates faster
+
         // flight mode
         // 1. read joysticks
         // 2. send over radio
@@ -134,7 +121,7 @@ void app(void)
         if (!oled_updated)
         {
             if (oled_page == PAGE_1)
-                oled_show_battery(batt_lvl , 0);
+                oled_show_battery(tx_batt_lvl , rx_batt_lvl);
             else if (oled_page == PAGE_2)
                 oled_show_joysticks((uint8_t) ((joysticks[0] / 256.0) * 100.0), (uint8_t) ((joysticks[1] / 256.0) * 100.0), (uint8_t) ((joysticks[2] / 256.0) * 100.0), (uint8_t) ((joysticks[3] / 256.0) * 100.0));
             else
@@ -156,25 +143,27 @@ void app(void)
             // adc level is between 2.1 and 1.15V
             // convert from [1.15, 2.1] to [0, 100]
             float adc_v = ((float) adc_conversions[4] / 4096.0) * 3.3;
-            batt_lvl = (uint8_t) (((adc_v - 1.15) / (2.1 - 1.15)) * 100.0);
+            tx_batt_lvl = (uint8_t) (((adc_v - 1.15) / (2.1 - 1.15)) * 100.0);
 
-            if (batt_lvl < 10)
+            if (tx_batt_lvl < 10)
                 shutdown();
 
             // update oled every time ADC is sampled (when not on PID)
             if (oled_page == PAGE_1 || oled_page == PAGE_2)
                 oled_updated = 0;
 
-            uint8_t packet[3] = {0x5e, 0x54, 0x21};
-            uint8_t response[2];
-            uint8_t rlen;
-            
-            rf_send(&tx, packet, 3, response, &rlen);
-            // if (rf_send(&tx, packet, 3, response, &rlen) != RF_SUCCESS)
-                // Error_Handler();
+            PacketParams packet = { .throttle = joysticks[0], 
+                                    .yaw = joysticks[1], 
+                                    .pitch = joysticks[2], 
+                                    .roll = joysticks[3], 
+                                    .kp = kp, 
+                                    .ki = ki, 
+                                    .kd = kd,
+                                    .key = PACKET_KEY                  };
 
-            if (rlen == 2 && response[0] == 0x05 && response[1] == 0x02)
-                HAL_GPIO_TogglePin(USER_LED_GPIO_Port, USER_LED_Pin);
+            AckParams ack;
+
+            rf_send_packet(&packet, &ack);
 
             adc_ready = 0;
         }    
@@ -184,8 +173,29 @@ void app(void)
 // implement callback function
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
-
     adc_ready = 1;
+}
+
+static void rf_send_packet(PacketParams * packet, AckParams * ack)
+{
+    uint8_t ack_len;
+    rf_send(&tx, (uint8_t *) packet, sizeof(PacketParams), (uint8_t *) ack, &ack_len);
+
+    if (ack_len == 0)
+    {
+        // no ack
+        return;
+    }
+    else if (ack_len == ACK_SIZE && ack->key == ACK_KEY)
+    {
+        HAL_GPIO_TogglePin(USER_LED_GPIO_Port, USER_LED_Pin);
+        rx_batt_lvl = ack->rx_batt_lvl;
+    }
+    else
+    {  
+        // error
+        return;
+    }
 }
 
 static void shutdown()
