@@ -32,6 +32,8 @@ static RadioIrqs irqs = {
     .max_rt = INT_DIS
 };
 
+uint8_t rf_dr = 0;          // data received from nRF24L01
+
 /* Sysclk running at 168 MHz */
 /* HCLK running at 168 MHz */
 /* Cortex system timer running at 21 MHz */
@@ -42,12 +44,12 @@ static RadioIrqs irqs = {
 /* APB2 timer clocks running at 168 MHz */
 /* USB running at 48 MHz */
 
-void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTypeDef * hspi2, SPI_HandleTypeDef * hspi3, TIM_HandleTypeDef * htim2, UART_HandleTypeDef * huart1, PCD_HandleTypeDef * husb);
+void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTypeDef * hspi2, SPI_HandleTypeDef * hspi3, TIM_HandleTypeDef * htim2, UART_HandleTypeDef * huart1, PCD_HandleTypeDef * husb)
 {
     rx.hspi = hspi3;
     rf_init(&rx);
 
-    rf_set_irq(rx, irqs);
+    rf_set_irq(&rx, &irqs);
 }
 
 void app(void)
@@ -58,14 +60,17 @@ void app(void)
     PacketParams packet;
 
     uint8_t packet_len;
+
     while (1)
     {
-        /******** Move all radio listen functions to EXTI */
-        /* Create simple complementary filter */
         /* Create IMU library functions for filtering accel, gyro data */
+        /* Take notes on complementary filter, madgwick filter, kalman filter */
+        /* Create simple complementary filter */
         /* Create PWM generator for motor speeds */
         /* Create PID loop for quadcopter controller */
-        if (rf_listen(&rx, 100000) == RF_SUCCESS)
+        /* Create timer to sample VBAT ADC every second or so*/
+
+        if (rf_dr)
         {
             count++;
             if (count == 10)
@@ -81,11 +86,17 @@ void app(void)
             }
             if (packet_len == PACKET_SIZE && packet.key == PACKET_KEY && packet.throttle > 128)
                 HAL_GPIO_TogglePin(USER_GPIO_Port, USER_Pin);
+
+            rf_dr = 0;
         }
     }
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-
+    // RF_IRQ on falling edge
+    if (GPIO_Pin == RF_IRQ_Pin)
+    {
+        rf_dr = 1;
+    }
 }
