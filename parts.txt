@@ -1,14 +1,19 @@
 Quadcopter
 CPU: STM32F466RCT6
-IMU (accel + gyro): ICM40609
+IMU (accel + gyro): LSM6DS3TR-C
 Magnetometer: IIS2MDCTR
-Motors:
-ESC:
+GPS: ATGM336H
+Barometer: LPS25HB
+Radio: nRF24L01
+Motors: FLASH HOBBY Arthur 2207.5 Outrunner 2450KV
+ESC: AERO SERLFIE 60A 4IN1 ESC 2S-6S LiPo
 Rotors:
 Battery:
-Radio: nRF24L01
+Frame: FPVDrone 225mm FPV Racing Drone 5 inch
 
 Controller
 CPU: STM32L432KC
 Joystick: Gulikit TMR
-Battery:
+Encoder: Bourns PEC11R-2415F-S0024
+Radio: nRF24L01
+Battery: EEMB 3.7V LiPo Battery 1100mAh
