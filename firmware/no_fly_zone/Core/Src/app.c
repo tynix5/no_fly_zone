@@ -49,7 +49,7 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
     rx.hspi = hspi3;
     rf_init(&rx);
 
-    rf_set_irq(&rx, &irqs);
+    // rf_set_irq(&rx, &irqs);
 }
 
 void app(void)
@@ -70,7 +70,8 @@ void app(void)
         /* Create PID loop for quadcopter controller */
         /* Create timer to sample VBAT ADC every second or so*/
 
-        if (rf_dr)
+        // if (rf_dr)
+        if (rf_listen(&rx, 10000) == RF_SUCCESS)
         {
             count++;
             if (count == 10)

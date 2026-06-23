@@ -61,8 +61,6 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define VBAT_ADC_Pin GPIO_PIN_1
 #define VBAT_ADC_GPIO_Port GPIOC
-#define RF_CS_Pin GPIO_PIN_4
-#define RF_CS_GPIO_Port GPIOA
 #define IMU_IRQ1_Pin GPIO_PIN_4
 #define IMU_IRQ1_GPIO_Port GPIOC
 #define IMU_IRQ2_Pin GPIO_PIN_5
@@ -86,8 +84,8 @@ void Error_Handler(void);
 #define STAT2_GPIO_Port GPIOB
 #define STAT1_Pin GPIO_PIN_5
 #define STAT1_GPIO_Port GPIOB
-#define RF_CSB6_Pin GPIO_PIN_6
-#define RF_CSB6_GPIO_Port GPIOB
+#define RF_CS_Pin GPIO_PIN_6
+#define RF_CS_GPIO_Port GPIOB
 #define RF_CE_Pin GPIO_PIN_7
 #define RF_CE_GPIO_Port GPIOB
 
