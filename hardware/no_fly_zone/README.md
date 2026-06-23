@@ -44,6 +44,8 @@ The hierarchal schematic provides a top-level overview of the two boards. The ES
 
 ### RF
 
+Like the RF section on the remote, the nRF24L01 is surrounded by a continuous ground plane on the top layer as well as the layer directly underneath the antenna for stability. Stitching vias are placed about ~6mm apart (between lambda/10 - lambda/20 of 2.4 GHz wavelength) near antenna for shielding.
+
 ![alt text](../../screenshots/quad_rf.png)
 
 ### Misc

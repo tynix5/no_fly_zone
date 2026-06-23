@@ -27,6 +27,7 @@ An important note on the revised version is Revision 1.0 used the wrong TVS diod
 
 The hierarchal schematic details how the MCU, sensors, and power schematics are connected.
 
+
 ![alt text](../../screenshots/remote_hierarchal.png)
 
 ### MCU
@@ -42,6 +43,8 @@ The hierarchal schematic details how the MCU, sensors, and power schematics are 
 Contains four M3 screws with pads, not shown for brevity
 
 ### PCB
+
+Note on radio layout: the nRF24L01 is surrounded by a continuous ground plane on the top layer as well as the layer directly underneath the antenna for stability. Stitching vias are placed about ~6mm apart (between lambda/10 - lambda/20 of 2.4 GHz wavelength) near antenna for shielding.
 
 ![alt text](../../screenshots/remote_pcb.png)
 
