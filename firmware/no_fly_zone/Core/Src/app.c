@@ -1,6 +1,9 @@
 #include "app.h"
 #include "main.h"
 #include "nrf24.h"
+// #include "iis2mdc.h"
+#include "lps25hb.h"
+#include "lsm6ds3tr.h"
 #include "rf_structs.h"
 #include "stm32f446xx.h"
 #include "stm32f4xx_hal.h"
@@ -34,6 +37,38 @@ static RadioIrqs irqs = {
 
 uint8_t rf_dr = 0;          // data received from nRF24L01
 
+
+static BarParams bar = {
+
+    .cs_gpio = BAR_CS_GPIO_Port,
+    .cs = BAR_CS_Pin,
+    .odr = BAR_ODR_25HZ,
+    .fifo_mode = BAR_BYPASS_MODE
+};
+
+const GyroParams gyro = {
+
+    .odr = IMU_ODR_1_66KHZ,
+    .fs = IMU_FS_G_1000DPS,
+    .lpf = IMU_LPF_EN,
+    .hpf = IMU_HPF_DIS
+};
+
+const AccelParams accel = {
+
+    .odr = IMU_ODR_1_66KHZ,
+    .fs = IMU_FS_XL_8G,
+    .filter_mode = IMU_HPF_EN
+};
+
+IMUParams imu = {
+
+    .cs_gpio = IMU_CS_GPIO_Port,
+    .cs = IMU_CS_Pin,
+    .gyro = gyro,
+    .xl = accel
+};
+
 /* Sysclk running at 168 MHz */
 /* HCLK running at 168 MHz */
 /* Cortex system timer running at 21 MHz */
@@ -49,17 +84,27 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
     rx.hspi = hspi3;
     rf_init(&rx);
 
-    // rf_set_irq(&rx, &irqs);
+    bar.hspi = hspi1;
+    bar_init(&bar);
+    HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
+    
+    imu.hspi = hspi1;
+    imu_init(&imu);
+    HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
+
+    rf_set_irq(&rx, &irqs);
 }
 
 void app(void)
 {
     uint8_t count = 0;
 
-    AckParams ack = {.key = ACK_KEY, .rx_batt_lvl = 43};
+    AckParams ack = {.key = ACK_KEY, .rx_batt_lvl = 84};
     PacketParams packet;
 
     uint8_t packet_len;
+
+    rf_listen_it(&rx);
 
     while (1)
     {
@@ -69,9 +114,8 @@ void app(void)
         /* Create PWM generator for motor speeds */
         /* Create PID loop for quadcopter controller */
         /* Create timer to sample VBAT ADC every second or so*/
-
-        // if (rf_dr)
-        if (rf_listen(&rx, 10000) == RF_SUCCESS)
+        
+        if (rf_dr)
         {
             count++;
             if (count == 10)
@@ -85,10 +129,11 @@ void app(void)
                 // send no ack
                 rf_receive(&rx, (uint8_t *) &packet, &packet_len, (uint8_t *) &ack, 0);
             }
-            if (packet_len == PACKET_SIZE && packet.key == PACKET_KEY && packet.throttle > 128)
+            if (packet_len == PACKET_SIZE && packet.key == PACKET_KEY && packet.throttle < 100)
                 HAL_GPIO_TogglePin(USER_GPIO_Port, USER_Pin);
 
             rf_dr = 0;
+            rf_listen_it(&rx);
         }
     }
 }
