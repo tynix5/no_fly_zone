@@ -60,7 +60,7 @@ const AccelParams accel = {
 
     .odr = IMU_ODR_1_66KHZ,
     .fs = IMU_FS_XL_8G,
-    .filter_mode = IMU_HPF_EN
+    .filter_mode = IMU_NO_FILTER            // if high pass filter is enabled, it will turn z-axis into "0"
 };
 
 IMUParams imu = {
@@ -76,7 +76,7 @@ MagParams mag = {
     .cs_gpio = MAG_CS_GPIO_Port,
     .cs = MAG_CS_Pin,
     .delay_ms = HAL_Delay,
-    .lpf = ENABLE,
+    .lpf = DISABLE,
     .odr = MAG_ODR_20HZ,
     .mode = MAG_MODE_CONT,
     .int_drdy = ENABLE
@@ -93,7 +93,6 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
     rx.hspi = hspi3;
     rf_init(&rx);
 
-    // barometer not working
     bar.hspi = hspi1;
     if (bar_init(&bar) == SUCCESS)
         HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
@@ -156,10 +155,28 @@ void app(void)
             rf_listen_it(&rx);
         }
         */
+        float a_x, a_y, a_z, w_x, w_y, w_z;
+        int16_t m_x = 2, m_y = 1, m_z = 1;
+        float hpa;
+        imu_read_accel_mps2(&imu, &a_x, &a_y, &a_z);         // correct
+        imu_read_gyro_radps(&imu, &w_x, &w_y, &w_z);         // correct
+        imu_read_gyro_degps(&imu, &w_x, &w_y, &w_z);            // correct
+        if (mag_is_data_ready(&mag, 500) == SUCCESS)
+        {
+            mag_read_raw(&mag, &m_x, &m_y, &m_z);
+        }
+        if (bar_is_data_ready(&bar, 50) == SUCCESS)
+        {
+            hpa = bar_read_press_hpa(&bar);
+        }
 
-        const char * str = "Test\r\n";
-        CDC_Transmit_FS(str, 6);
-        HAL_Delay(1000);
+        float accel[3] = {a_x, a_y, a_z};
+        float omega[3] = {w_x, w_y, w_z};
+        int mag[3] = {(int) m_x, (int) m_y, (int) m_z};
+
+        CDC_Transmit_FS((uint8_t *) &hpa, sizeof(hpa));
+        HAL_Delay(50);
+        HAL_GPIO_TogglePin(STAT1_GPIO_Port, STAT1_Pin);
     }
 }
 
