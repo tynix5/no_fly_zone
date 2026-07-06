@@ -1,12 +1,13 @@
 #include "app.h"
 #include "main.h"
 #include "nrf24.h"
-// #include "iis2mdc.h"
+#include "iis2mdc.h"
 #include "lps25hb.h"
 #include "lsm6ds3tr.h"
 #include "rf_structs.h"
 #include "stm32f446xx.h"
 #include "stm32f4xx_hal.h"
+#include "usbd_cdc_if.h"
 
 #define RF_TX_ADDR                 0xC2C2C2C2
 #define RF_RX_ADDR                 0xE7E7E7E7
@@ -28,7 +29,7 @@ static RadioParams rx = {
 };
 
 // only interrupt on data received
-static RadioIrqs irqs = {
+RadioIrqs irqs = {
 
     .rx_dr = INT_EN,
     .tx_ds = INT_DIS,
@@ -38,12 +39,13 @@ static RadioIrqs irqs = {
 uint8_t rf_dr = 0;          // data received from nRF24L01
 
 
-static BarParams bar = {
+BarParams bar = {
 
     .cs_gpio = BAR_CS_GPIO_Port,
     .cs = BAR_CS_Pin,
     .odr = BAR_ODR_25HZ,
-    .fifo_mode = BAR_BYPASS_MODE
+    .fifo_mode = BAR_BYPASS_MODE,
+    .delay_ms = HAL_Delay
 };
 
 const GyroParams gyro = {
@@ -66,33 +68,50 @@ IMUParams imu = {
     .cs_gpio = IMU_CS_GPIO_Port,
     .cs = IMU_CS_Pin,
     .gyro = gyro,
-    .xl = accel
+    .xl = accel,
+    .delay_ms = HAL_Delay
 };
 
-/* Sysclk running at 168 MHz */
-/* HCLK running at 168 MHz */
-/* Cortex system timer running at 21 MHz */
-/* FCLK running at 168 MHz */
-/* APB1 peripheral clocks running at 42 MHz */
-/* APB1 timer clocks running at 84 MHz */
-/* APB2 peripheral clocks running at 84 MHz */
-/* APB2 timer clocks running at 168 MHz */
-/* USB running at 48 MHz */
+MagParams mag = {
+    .cs_gpio = MAG_CS_GPIO_Port,
+    .cs = MAG_CS_Pin,
+    .delay_ms = HAL_Delay,
+    .lpf = ENABLE,
+    .odr = MAG_ODR_20HZ,
+    .mode = MAG_MODE_CONT,
+    .int_drdy = ENABLE
+};
 
-void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTypeDef * hspi2, SPI_HandleTypeDef * hspi3, TIM_HandleTypeDef * htim2, UART_HandleTypeDef * huart1, PCD_HandleTypeDef * husb)
+
+void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTypeDef * hspi2, SPI_HandleTypeDef * hspi3, TIM_HandleTypeDef * htim2, UART_HandleTypeDef * huart1)
 {
+    // deselect all slaves at start
+    HAL_GPIO_WritePin(MAG_CS_GPIO_Port, MAG_CS_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(IMU_CS_GPIO_Port, IMU_CS_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(BAR_CS_GPIO_Port, BAR_CS_Pin, GPIO_PIN_SET);
+
     rx.hspi = hspi3;
     rf_init(&rx);
 
+    // barometer not working
     bar.hspi = hspi1;
-    bar_init(&bar);
-    HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
+    if (bar_init(&bar) == SUCCESS)
+        HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
     
     imu.hspi = hspi1;
-    imu_init(&imu);
-    HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
+    if (imu_init(&imu) == SUCCESS)
+        HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
 
+    mag.hspi = hspi2;
+    if (mag_init(&mag) == SUCCESS)
+        HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_SET);
+    
     rf_set_irq(&rx, &irqs);
+    
+    HAL_Delay(3000);
+    HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_RESET);
 }
 
 void app(void)
@@ -115,6 +134,7 @@ void app(void)
         /* Create PID loop for quadcopter controller */
         /* Create timer to sample VBAT ADC every second or so*/
         
+        /*
         if (rf_dr)
         {
             count++;
@@ -135,6 +155,11 @@ void app(void)
             rf_dr = 0;
             rf_listen_it(&rx);
         }
+        */
+
+        const char * str = "Test\r\n";
+        CDC_Transmit_FS(str, 6);
+        HAL_Delay(1000);
     }
 }
 

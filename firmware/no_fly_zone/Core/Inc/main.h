@@ -71,10 +71,10 @@ void Error_Handler(void);
 #define BAR_IRQ_GPIO_Port GPIOB
 #define IMU_CS_Pin GPIO_PIN_2
 #define IMU_CS_GPIO_Port GPIOB
-#define IIS2_IRQ_Pin GPIO_PIN_12
-#define IIS2_IRQ_GPIO_Port GPIOB
-#define IIS2_CS_Pin GPIO_PIN_8
-#define IIS2_CS_GPIO_Port GPIOA
+#define MAG_IRQ_Pin GPIO_PIN_12
+#define MAG_IRQ_GPIO_Port GPIOB
+#define MAG_CS_Pin GPIO_PIN_8
+#define MAG_CS_GPIO_Port GPIOA
 #define RF_IRQ_Pin GPIO_PIN_15
 #define RF_IRQ_GPIO_Port GPIOA
 #define RF_IRQ_EXTI_IRQn EXTI15_10_IRQn
