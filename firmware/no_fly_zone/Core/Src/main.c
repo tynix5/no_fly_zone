@@ -472,7 +472,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pins : IMU_IRQ1_Pin IMU_IRQ2_Pin */
   GPIO_InitStruct.Pin = IMU_IRQ1_Pin|IMU_IRQ2_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
@@ -487,7 +487,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pins : BAR_IRQ_Pin MAG_IRQ_Pin */
   GPIO_InitStruct.Pin = BAR_IRQ_Pin|MAG_IRQ_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
@@ -512,6 +512,15 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(USER_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI4_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
