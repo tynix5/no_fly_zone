@@ -107,8 +107,10 @@ ImuParams imu = {
     }
 };
 
+uint32_t pkt[17];
+TIM_HandleTypeDef * tim;
 
-void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTypeDef * hspi2, SPI_HandleTypeDef * hspi3, TIM_HandleTypeDef * htim2, UART_HandleTypeDef * huart1)
+void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTypeDef * hspi2, SPI_HandleTypeDef * hspi3, TIM_HandleTypeDef * htim2, UART_HandleTypeDef * huart1, DMA_HandleTypeDef * hdma)
 {
     // deselect all slaves at start
     HAL_GPIO_WritePin(MAG_CS_GPIO_Port, MAG_CS_Pin, GPIO_PIN_SET);
@@ -136,12 +138,13 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
     HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_RESET);
     */
-    uint16_t pkt[16];
+   tim = htim2;
     uint16_t throttle = 0b10000010110;
     dshot_encode(throttle, 0, pkt);
     __HAL_TIM_SET_COMPARE(htim2, TIM_CHANNEL_4, 0);
-    HAL_TIM_PWM_Start(htim2, TIM_CHANNEL_4);
+    HAL_TIM_PWM_Start_DMA(htim2, TIM_CHANNEL_4, pkt, 17);
 
+    /*
     for (uint8_t i = 0; i < 16; i++)
     {
         while (__HAL_TIM_GET_FLAG(htim2, TIM_FLAG_UPDATE) == 0);
@@ -153,6 +156,7 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
     while (__HAL_TIM_GET_FLAG(htim2, TIM_FLAG_UPDATE) == 0);
     __HAL_TIM_CLEAR_FLAG(htim2, TIM_FLAG_UPDATE);
     __HAL_TIM_SET_COMPARE(htim2, TIM_CHANNEL_4, 0);
+    */
 }
 
 void app(void)
@@ -181,6 +185,8 @@ void app(void)
         /* Create PID loop for quadcopter controller */
         /* Create timer to sample VBAT ADC every second or so*/
         
+        HAL_TIM_PWM_Start_DMA(tim, TIM_CHANNEL_4, pkt, 17);
+        HAL_Delay(10);
 
         /*
         if (rf_dr)
@@ -268,4 +274,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     {
         bar_dr = 1;
     }
+}
+
+void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
+{
+    HAL_TIM_PWM_Stop_DMA(htim, TIM_CHANNEL_4);
 }

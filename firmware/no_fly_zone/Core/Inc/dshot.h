@@ -53,6 +53,6 @@ typedef struct {
 } DShotParams;
 
 void dshot_init();
-void dshot_encode(uint16_t throttle, uint8_t tel_req, uint16_t * pkt);
+void dshot_encode(uint16_t throttle, uint8_t tel_req, uint32_t * pkt);
 
 #endif

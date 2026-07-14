@@ -1,6 +1,6 @@
 #include "dshot.h"
 
-static void dshot_calculate_crc(uint16_t throttle, uint16_t * pkt);
+static void dshot_calculate_crc(uint16_t throttle, uint32_t * pkt);
 
 void dshot_init()
 {
@@ -8,7 +8,7 @@ void dshot_init()
 }
 
 
-void dshot_encode(uint16_t throttle, uint8_t tel_req, uint16_t * pkt)
+void dshot_encode(uint16_t throttle, uint8_t tel_req, uint32_t * pkt)
 {
     if (throttle > 2047)
         throttle = 2047;
@@ -29,9 +29,10 @@ void dshot_encode(uint16_t throttle, uint8_t tel_req, uint16_t * pkt)
         pkt[11] = 105;
 
     dshot_calculate_crc(throttle, pkt);
+    pkt[16] = 0;
 }
 
-static void dshot_calculate_crc(uint16_t throttle, uint16_t * pkt)
+static void dshot_calculate_crc(uint16_t throttle, uint32_t * pkt)
 {
     // XOR all nibbles together
     uint8_t crc = ((throttle ^ (throttle >> 4)) ^ (throttle >> 8)) & 0x0f;
