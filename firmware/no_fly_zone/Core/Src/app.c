@@ -4,6 +4,7 @@
 #include "iis2mdc.h"
 #include "lps25hb.h"
 #include "lsm6ds3tr.h"
+#include "dshot.h"
 #include "rf_structs.h"
 #include "stm32f446xx.h"
 #include "stm32f4xx_hal.h"
@@ -116,6 +117,7 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
 
     rx.hspi = hspi3;
     rf_init(&rx);
+    /*
 
     bar.hspi = hspi1;
     if (bar_init(&bar) == RET_OK)
@@ -133,6 +135,24 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
     HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_RESET);
+    */
+    uint16_t pkt[16];
+    uint16_t throttle = 0b10000010110;
+    dshot_encode(throttle, 0, pkt);
+    __HAL_TIM_SET_COMPARE(htim2, TIM_CHANNEL_4, 0);
+    HAL_TIM_PWM_Start(htim2, TIM_CHANNEL_4);
+
+    for (uint8_t i = 0; i < 16; i++)
+    {
+        while (__HAL_TIM_GET_FLAG(htim2, TIM_FLAG_UPDATE) == 0);
+        __HAL_TIM_CLEAR_FLAG(htim2, TIM_FLAG_UPDATE);
+        __HAL_TIM_SET_COMPARE(htim2, TIM_CHANNEL_4, pkt[i]);
+            
+    }
+
+    while (__HAL_TIM_GET_FLAG(htim2, TIM_FLAG_UPDATE) == 0);
+    __HAL_TIM_CLEAR_FLAG(htim2, TIM_FLAG_UPDATE);
+    __HAL_TIM_SET_COMPARE(htim2, TIM_CHANNEL_4, 0);
 }
 
 void app(void)
@@ -144,7 +164,6 @@ void app(void)
 
     uint8_t packet_len;
 
-    // check all IRQ functionality for sensors
     uint8_t send = 0;
     
     float a_x, a_y, a_z, w_x, w_y, w_z;
@@ -152,10 +171,6 @@ void app(void)
     float hpa, temp_bar, temp_mag;
 
     rf_listen_it(&rx);
-
-    // dummy read to clear INT/DRDY pin
-    // int16_t t1, t2, t3;
-    // mag_read_raw(&mag, &t1, &t2, &t3);
 
     while (1)
     {
@@ -166,6 +181,8 @@ void app(void)
         /* Create PID loop for quadcopter controller */
         /* Create timer to sample VBAT ADC every second or so*/
         
+
+        /*
         if (rf_dr)
         {
             count++;
@@ -223,6 +240,7 @@ void app(void)
             CDC_Transmit_FS((uint8_t *) data, sizeof(data));
             send = 0;
         }
+            */
             
     }
 }
