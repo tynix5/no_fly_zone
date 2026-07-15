@@ -107,10 +107,11 @@ ImuParams imu = {
     }
 };
 
-uint32_t pkt[17];
-TIM_HandleTypeDef * tim;
+uint32_t pkt1[17], pkt2[17], pkt3[17], pkt4[17];
+TIM_HandleTypeDef * tim2;
+TIM_HandleTypeDef * tim5;
 
-void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTypeDef * hspi2, SPI_HandleTypeDef * hspi3, TIM_HandleTypeDef * htim2, UART_HandleTypeDef * huart1, DMA_HandleTypeDef * hdma)
+void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTypeDef * hspi2, SPI_HandleTypeDef * hspi3, TIM_HandleTypeDef * htim2, TIM_HandleTypeDef * htim5, UART_HandleTypeDef * huart1, DMA_HandleTypeDef * hdma)
 {
     // deselect all slaves at start
     HAL_GPIO_WritePin(MAG_CS_GPIO_Port, MAG_CS_Pin, GPIO_PIN_SET);
@@ -138,11 +139,33 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
     HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_RESET);
     */
-   tim = htim2;
-    uint16_t throttle = 0b10000010110;
-    dshot_encode(throttle, 0, pkt);
+    tim2 = htim2;
+    tim5 = htim5;
+    uint16_t throttle1 = 0b10000010110;
+    uint16_t throttle2 = 0b10000110110;
+    uint16_t throttle3 = 0b10001110110;
+    uint16_t throttle4 = 0b10011110110;
+    dshot_encode(throttle1, 0, pkt1);
+    dshot_encode(throttle2, 0, pkt2);
+    dshot_encode(throttle3, 0, pkt3);
+    dshot_encode(throttle4, 0, pkt4);
+    __HAL_TIM_SET_COMPARE(htim2, TIM_CHANNEL_1, 0);
+    __HAL_TIM_SET_COMPARE(htim5, TIM_CHANNEL_2, 0);
+    __HAL_TIM_SET_COMPARE(htim5, TIM_CHANNEL_3, 0);
     __HAL_TIM_SET_COMPARE(htim2, TIM_CHANNEL_4, 0);
-    HAL_TIM_PWM_Start_DMA(htim2, TIM_CHANNEL_4, pkt, 17);
+    HAL_TIM_PWM_Start_DMA(htim2, TIM_CHANNEL_1, pkt1, 17);
+    HAL_TIM_PWM_Start_DMA(htim5, TIM_CHANNEL_2, pkt2, 17);
+    HAL_TIM_PWM_Start_DMA(htim5, TIM_CHANNEL_3, pkt3, 17);
+    HAL_TIM_PWM_Start_DMA(htim2, TIM_CHANNEL_4, pkt4, 17);
+
+    // 1. Enable TIM + DMA
+    // 2. Timer counts starting from 0
+    // 3. CNT reaches CCRx
+    // 4. TIM generates compare event
+    // 5. TIM generates DMA request
+    // 6. DMA transfers next bit from pkt into preload compare register
+    // 7. CNT reaches ARR, update event occurs
+    // 8. preload compare register is transferred to compare register
 
     /*
     for (uint8_t i = 0; i < 16; i++)
@@ -185,7 +208,12 @@ void app(void)
         /* Create PID loop for quadcopter controller */
         /* Create timer to sample VBAT ADC every second or so*/
         
-        HAL_TIM_PWM_Start_DMA(tim, TIM_CHANNEL_4, pkt, 17);
+        // HAL_TIM_PWM_Start_DMA(tim, TIM_CHANNEL_1, pkt1, 17);
+        // HAL_TIM_PWM_Start_DMA(tim, TIM_CHANNEL_2, pkt2, 17);
+        HAL_TIM_PWM_Start_DMA(tim2, TIM_CHANNEL_1, pkt1, 17);
+        HAL_TIM_PWM_Start_DMA(tim5, TIM_CHANNEL_2, pkt2, 17);
+        HAL_TIM_PWM_Start_DMA(tim5, TIM_CHANNEL_3, pkt3, 17);
+        HAL_TIM_PWM_Start_DMA(tim2, TIM_CHANNEL_4, pkt4, 17);
         HAL_Delay(10);
 
         /*
@@ -278,5 +306,20 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 {
-    HAL_TIM_PWM_Stop_DMA(htim, TIM_CHANNEL_4);
+    if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+    {
+        HAL_TIM_PWM_Stop_DMA(htim, TIM_CHANNEL_1);
+    }
+    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
+    {
+        HAL_TIM_PWM_Stop_DMA(htim, TIM_CHANNEL_2);
+    }
+    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_3)
+    {
+        HAL_TIM_PWM_Stop_DMA(htim, TIM_CHANNEL_3);
+    }
+    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
+    {
+        HAL_TIM_PWM_Stop_DMA(htim, TIM_CHANNEL_4);
+    }
 }
