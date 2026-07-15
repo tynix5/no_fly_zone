@@ -107,6 +107,14 @@ ImuParams imu = {
     }
 };
 
+DShotParams dshot = {
+
+    .bitrate = DSHOT_BR_300,
+    .channels = {TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3, TIM_CHANNEL_4},
+    .f_tims = {84000000, 84000000, 84000000, 84000000},
+    .n = 4
+};
+
 uint32_t pkt1[17], pkt2[17], pkt3[17], pkt4[17];
 TIM_HandleTypeDef * tim2;
 TIM_HandleTypeDef * tim5;
@@ -139,25 +147,22 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
     HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_RESET);
     */
-    tim2 = htim2;
-    tim5 = htim5;
+    dshot.htims[0] = htim2;
+    dshot.htims[1] = htim5;
+    dshot.htims[2] = htim5;
+    dshot.htims[3] = htim2;
+
+    dshot_init(&dshot);
+
     uint16_t throttle1 = 0b10000010110;
     uint16_t throttle2 = 0b10000110110;
     uint16_t throttle3 = 0b10001110110;
     uint16_t throttle4 = 0b10011110110;
-    dshot_encode(throttle1, 0, pkt1);
-    dshot_encode(throttle2, 0, pkt2);
-    dshot_encode(throttle3, 0, pkt3);
-    dshot_encode(throttle4, 0, pkt4);
-    __HAL_TIM_SET_COMPARE(htim2, TIM_CHANNEL_1, 0);
-    __HAL_TIM_SET_COMPARE(htim5, TIM_CHANNEL_2, 0);
-    __HAL_TIM_SET_COMPARE(htim5, TIM_CHANNEL_3, 0);
-    __HAL_TIM_SET_COMPARE(htim2, TIM_CHANNEL_4, 0);
-    HAL_TIM_PWM_Start_DMA(htim2, TIM_CHANNEL_1, pkt1, 17);
-    HAL_TIM_PWM_Start_DMA(htim5, TIM_CHANNEL_2, pkt2, 17);
-    HAL_TIM_PWM_Start_DMA(htim5, TIM_CHANNEL_3, pkt3, 17);
-    HAL_TIM_PWM_Start_DMA(htim2, TIM_CHANNEL_4, pkt4, 17);
 
+    dshot_encode(&dshot, throttle1, 0, DSHOT_CH_1);
+    dshot_encode(&dshot, throttle2, 0, DSHOT_CH_2);
+    dshot_encode(&dshot, throttle3, 0, DSHOT_CH_3);
+    dshot_encode(&dshot, throttle4, 0, DSHOT_CH_4);
     // 1. Enable TIM + DMA
     // 2. Timer counts starting from 0
     // 3. CNT reaches CCRx
@@ -210,11 +215,10 @@ void app(void)
         
         // HAL_TIM_PWM_Start_DMA(tim, TIM_CHANNEL_1, pkt1, 17);
         // HAL_TIM_PWM_Start_DMA(tim, TIM_CHANNEL_2, pkt2, 17);
-        HAL_TIM_PWM_Start_DMA(tim2, TIM_CHANNEL_1, pkt1, 17);
-        HAL_TIM_PWM_Start_DMA(tim5, TIM_CHANNEL_2, pkt2, 17);
-        HAL_TIM_PWM_Start_DMA(tim5, TIM_CHANNEL_3, pkt3, 17);
-        HAL_TIM_PWM_Start_DMA(tim2, TIM_CHANNEL_4, pkt4, 17);
-        HAL_Delay(10);
+        
+        uint8_t starts[4] = {DSHOT_CH_1, DSHOT_CH_2, DSHOT_CH_3, DSHOT_CH_4};
+        dshot_send(&dshot, starts, 4);
+        HAL_Delay(100);
 
         /*
         if (rf_dr)
