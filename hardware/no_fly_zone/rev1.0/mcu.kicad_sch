@@ -4893,7 +4893,7 @@
 		)
 		(uuid "9a15fbc2-9f17-4924-a279-d0f4205bceb0")
 	)
-	(hierarchical_label "TIM2_CH3"
+	(hierarchical_label "TIM5_CH3"
 		(shape input)
 		(at 139.7 86.36 0)
 		(effects
@@ -4917,7 +4917,7 @@
 		)
 		(uuid "a64e0261-ca54-4018-b955-8f9f01b3b3bb")
 	)
-	(hierarchical_label "TIM2_CH2"
+	(hierarchical_label "TIM5_CH2"
 		(shape input)
 		(at 139.7 83.82 0)
 		(effects
@@ -4986,7 +4986,7 @@
 		)
 		(uuid "eaf850ea-2f7a-4e46-9dd0-72e40bf5ff39")
 	)
-	(hierarchical_label "IIS2_IRQ"
+	(hierarchical_label "MAG_IRQ"
 		(shape input)
 		(at 139.7 152.4 0)
 		(effects

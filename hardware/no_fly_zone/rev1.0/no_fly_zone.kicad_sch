@@ -3864,46 +3864,6 @@
 				(justify left top)
 			)
 		)
-		(pin "IIS2_IRQ" input
-			(at 85.09 116.84 0)
-			(uuid "9617e1ae-cb9d-401c-a671-eae9b3624152")
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(pin "IIS2_CS" input
-			(at 85.09 114.3 0)
-			(uuid "c693e62c-ccd6-4b5c-9da0-1ce7adcab800")
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(pin "IIS2_SCK" input
-			(at 85.09 109.22 0)
-			(uuid "dcc61c92-ea74-4108-8105-c2cae1f7f56a")
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
-		(pin "IIS2_MOSI" input
-			(at 85.09 111.76 0)
-			(uuid "abdb3688-fc3e-4999-b74e-86ad1f1c0216")
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify right)
-			)
-		)
 		(pin "IMU_INT2" input
 			(at 85.09 88.9 0)
 			(uuid "fdefddc6-9a96-48b4-85ce-759371813eed")
@@ -4057,6 +4017,46 @@
 		(pin "+3V3" input
 			(at 85.09 68.58 0)
 			(uuid "c8b8e63f-8fe8-4ab4-af46-1fbbb43c31ab")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "MAG_IRQ" input
+			(at 85.09 116.84 0)
+			(uuid "136bea2e-d086-4fb5-a32d-08eca75714b9")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "MAG_MOSI" input
+			(at 85.09 111.76 0)
+			(uuid "af3e9f47-d643-4ea3-bee4-0e5b554d078e")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "MAG_SCK" input
+			(at 85.09 109.22 0)
+			(uuid "8e311ad1-58b7-4bf0-a7d6-9696d4514b3e")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "MAG_CS" input
+			(at 85.09 114.3 0)
+			(uuid "3babcb04-3ffa-41c8-ae36-14ecff5a7bcb")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4391,16 +4391,6 @@
 				(justify left)
 			)
 		)
-		(pin "TIM2_CH3" input
-			(at 144.78 54.61 180)
-			(uuid "9a208199-bd90-41ce-a2f9-5954fdf318c3")
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
 		(pin "TIM2_CH1" input
 			(at 144.78 59.69 180)
 			(uuid "5c11e348-bb7d-4d45-a551-8634362cc31d")
@@ -4421,29 +4411,9 @@
 				(justify left)
 			)
 		)
-		(pin "TIM2_CH2" input
-			(at 144.78 57.15 180)
-			(uuid "d2899401-6a44-4a39-8d92-dbd165cf54cd")
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
 		(pin "IMU_IRQ2" input
 			(at 144.78 88.9 180)
 			(uuid "423c6c00-01f5-4cb1-b465-67f8f29b68dc")
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(pin "IIS2_IRQ" input
-			(at 144.78 116.84 180)
-			(uuid "bdea84da-57b1-4dc7-becb-4803014378f6")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4584,6 +4554,36 @@
 		(pin "ADC_IN11" input
 			(at 144.78 46.99 180)
 			(uuid "e52bb2a6-87dd-46fe-bf64-0dc1950d069b")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "MAG_IRQ" input
+			(at 144.78 116.84 180)
+			(uuid "942e2bf9-05c6-4237-b30e-46c359c01165")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "TIM5_CH2" input
+			(at 144.78 54.61 180)
+			(uuid "59886432-f398-4309-a740-a19da84c5e1e")
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "TIM5_CH3" input
+			(at 144.78 57.15 180)
+			(uuid "a838f7b2-14b0-4ae8-b32e-6897f73c6c6d")
 			(effects
 				(font
 					(size 1.27 1.27)
