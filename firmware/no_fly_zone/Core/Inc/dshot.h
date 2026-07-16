@@ -85,6 +85,7 @@ typedef enum : uint8_t {
 
 } DShotCommand;
 
+// channel number corresponds to the order in which they are listed in init()
 typedef enum : uint8_t {
 
     DSHOT_CH_1 = 0,
@@ -108,17 +109,28 @@ typedef enum : uint8_t {
 
 typedef struct {
 
+    TIM_HandleTypeDef * htim;                               // timer handles for each DShot channel
+    uint32_t channel;                                       // channels used for each timer (channel # must line up with timer in htims)
+    uint32_t freq;                                          // timer frequencies --> used to calculate ARR and CCRx
+
+} DShotStream;
+
+typedef struct {
+
     DShotBitrate bitrate;                                   // DShot bit rate
     uint8_t n;                                              // number of active DShot channels
-    TIM_HandleTypeDef * htims[DSHOT_MAX_N];                 // timer handles for each DShot channel
-    uint32_t channels[DSHOT_MAX_N];                         // channels used for each timer (channel # must line up with timer in htims)
-    uint32_t f_tims[DSHOT_MAX_N];                           // timer frequencies --> used to calculate ARR and CCRx
+
+    DShotStream stream[DSHOT_MAX_N];                        // unique DShot channel parameters
 
 } DShotParams;
 
+/* Set timer ARR's, calculate CCRx values need for '1' and '0' bits */
 ErrorType dshot_init(DShotParams * dshot);
+/* Encode throttle amount into 17-byte packet */
 ErrorType dshot_encode(DShotParams * dshot, uint16_t throttle, uint8_t tel_req, DShotChannel ch);
+/* Start DMA on selected channels */
 ErrorType dshot_send(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n);
-// void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim);                // DMA interrupt callback
+/* DMA interrupt callback - calls when all 17 bytes have been transferred to CCRx */
+void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim);
 
 #endif

@@ -119,7 +119,7 @@ int main(void)
   MX_USB_DEVICE_Init();
   MX_TIM5_Init();
   /* USER CODE BEGIN 2 */
-  app_init(&hadc1, &hspi1, &hspi2, &hspi3, &htim2, &htim5, &huart1, &hdma_tim2_up_ch4);
+  app_init(&hadc1, &hspi1, &hspi2, &hspi3, &htim2, &htim5, &huart1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
