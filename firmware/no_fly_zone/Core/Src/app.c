@@ -1,17 +1,24 @@
 #include "app.h"
 #include "main.h"
-#include "nrf24.h"
-#include "iis2mdc.h"
-#include "lps25hb.h"
-#include "lsm6ds3tr.h"
-#include "dshot.h"
-#include "rf_structs.h"
 #include "stm32f446xx.h"
 #include "stm32f4xx_hal.h"
 #include "usbd_cdc_if.h"
+#include "arm_math.h"
 
-#define RF_TX_ADDR                 0xC2C2C2C2
-#define RF_RX_ADDR                 0xE7E7E7E7
+#include "lsm6ds3tr.h"
+#include "iis2mdc.h"
+#include "lps25hb.h"
+#include "dshot.h"
+#include "nrf24.h"
+#include "rf_structs.h"
+#include "quaternion.h"
+
+#define BETA                        0.033
+#define MADGWICK_GAIN               BETA
+#define DELTA_T                     0.0001          // replace with actual variable
+
+#define RF_TX_ADDR                  0xC2C2C2C2
+#define RF_RX_ADDR                  0xE7E7E7E7
 
 RadioParams rx = {
 
@@ -122,7 +129,6 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
 
     rx.hspi = hspi3;
     rf_init(&rx);
-    /*
 
     bar.hspi = hspi1;
     if (bar_init(&bar) == RET_OK)
@@ -132,15 +138,15 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
     if (imu_init(&imu) == RET_OK)
         HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
 
-    mag.hspi = hspi2;
-    if (mag_init(&mag) == RET_OK)
-        HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_SET);
+    // mag.hspi = hspi2;
+    // if (mag_init(&mag) == RET_OK)
+    //     HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_SET);
         
     HAL_Delay(3000);
     HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_RESET);
-    */
+    
     dshot.stream[0].htim = dshot.stream[3].htim = htim2;
     dshot.stream[1].htim = dshot.stream[2].htim = htim5;
     dshot.stream[0].channel = TIM_CHANNEL_1;
@@ -177,23 +183,28 @@ void app(void)
     float m_x, m_y, m_z;
     float hpa, temp_bar, temp_mag;
 
+    Quaternion q_accel, q_gyro;
+    Quaternion q_gyro_dot;
+    Quaternion q_state, q_state_prev, q_state_dot;
+
+    // initial state
+    q_state_prev.q1 = 1.0;
+    q_state_prev.q2 = 0;
+    q_state_prev.q3 = 0;
+    q_state_prev.q4 = 0;
+
     rf_listen_it(&rx);
 
     while (1)
     {
-        /* Create IMU library functions for filtering accel, gyro data */
-        /* Take notes on complementary filter, madgwick filter, kalman filter */
-        /* Create simple complementary filter */
-        /* Create PWM generator for motor speeds */
-        /* Create PID loop for quadcopter controller */
         /* Create timer to sample VBAT ADC every second or so*/
-        
         
         DShotChannel starts[4] = {DSHOT_CH_1, DSHOT_CH_2, DSHOT_CH_3, DSHOT_CH_4};
         dshot_send(&dshot, starts, 4);
         HAL_Delay(100);
 
-        /*
+        // process remote sticks
+        // compute target pitch, roll, yaw (rate)
         if (rf_dr)
         {
             count++;
@@ -216,14 +227,16 @@ void app(void)
         } 
         if (gyro_dr)
         {
-            imu_read_gyro_degps(&imu, &w_x, &w_y, &w_z);    
+            q_gyro.q1 = 0;
+            imu_read_gyro_degps(&imu, &q_gyro.q2, &q_gyro.q3, &q_gyro.q4);    
             send = 1;
             gyro_dr = 0;
             HAL_GPIO_TogglePin(STAT1_GPIO_Port, STAT1_Pin);
         }
         if (accel_dr)
         {
-            imu_read_accel_mps2(&imu, &a_x, &a_y, &a_z); 
+            q_accel.q1 = 0;
+            imu_read_accel_mps2(&imu, &q_accel.q2, &q_accel.q3, &q_accel.q4); 
             send = 1;
             accel_dr = 0;
             // HAL_GPIO_TogglePin(STAT2_GPIO_Port, STAT2_Pin);
@@ -251,8 +264,50 @@ void app(void)
             CDC_Transmit_FS((uint8_t *) data, sizeof(data));
             send = 0;
         }
-            */
-            
+
+
+        // compute f_g(q, s_a)
+        // this is the error function: it calculates difference between predicted and measured state
+        float fg[3];
+        fg[0] = 2.0 * (q_state_prev.q2 * q_state_prev.q4 - q_state_prev.q1 * q_state_prev.q3) - q_accel.q2;            
+        fg[1] = 2.0 * (q_state_prev.q1 * q_state_prev.q2 + q_state_prev.q3 * q_state_prev.q4) - q_accel.q3;            
+        fg[0] = 2.0 * (0.5 - q_state_prev.q2 * q_state_prev.q2 - q_state_prev.q3 * q_state_prev.q3) - q_accel.q4;
+
+        // create Jacobian J_g(q)
+        // if quaternion slightly changes, how does error change?
+        float Jg[3 * 4] = {-2.0 * q_state_prev.q3, 2.0 * q_state_prev.q4, -2.0 * q_state_prev.q1, 2.0 * q_state_prev.q2,
+                            2.0 * q_state_prev.q2, 2.0 * q_state_prev.q1, 2.0 * q_state_prev.q4, 2 * q_state_prev.q3,
+                            0.0, -4.0 * q_state_prev.q2, -4.0 * q_state_prev.q3, 0.0};
+
+        // normalize acceleration
+        quat_norm(q_accel, &q_accel);
+
+        // compute quaternion derivative for gyro
+        // q_gyro_dot = 1/2 * q_state_prev * q_gyro 
+        quat_mult(q_state_prev, q_gyro, &q_gyro_dot);
+        quat_mult_scalar(q_gyro_dot, 0.5, &q_gyro_dot);
+
+        float JgT[12];
+        float gradient[4];
+        arm_mat_trans_f32(Jg, JgT);             // replace with hard coded transpose matrix
+
+        // compute gradient = (J^T)f
+        // linear estimate of how uncertainty in inputs propagates into uncertainty in output
+        arm_mat_mult_f32(JgT, fg, gradient);
+
+        Quaternion q_grad = {.q1 = gradient[0], .q2 = gradient[1], .q3 = gradient[2], .q4 = gradient[3]};
+        Quaternion q_grad_norm, q_grad_prod;
+        quat_norm(q_grad, &q_grad_norm);
+        quat_mult_scalar(q_grad_norm, -BETA, &q_grad_prod);
+        quat_add(q_gyro_dot, q_grad_prod, &q_state_dot);
+        quat_mult_scalar(q_state_dot, DELTA_T, &q_state_dot);
+        quat_add(q_state_prev, q_state_dot, &q_state);
+        quat_norm(q_state, &q_state);
+
+        q_state_prev = q_state;         // replace with actual values
+
+        float pitch, roll, yaw;
+        quat_to_euler(q_state, &pitch, &roll, &yaw);        // verify pitch, roll, yaw estimates
     }
 }
 
