@@ -116,7 +116,8 @@ ImuParams imu = {
 };
 
 DShotParams dshot = {
-    .bitrate = DSHOT_BR_300,
+    .bitrate = DSHOT_BR_300_KBPS,
+    .frequency = DSHOT_FREQ_4_KHZ,
     .n = 4
 };
 
@@ -127,6 +128,12 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
     HAL_GPIO_WritePin(MAG_CS_GPIO_Port, MAG_CS_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(IMU_CS_GPIO_Port, IMU_CS_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(BAR_CS_GPIO_Port, BAR_CS_Pin, GPIO_PIN_SET);
+
+    // all motors no pwm
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);
     
     /*
     rx.hspi = hspi3;
@@ -135,22 +142,20 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
     bar.hspi = hspi1;
     if (bar_init(&bar) == RET_OK)
         HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
-    */
-
+    
     imu.hspi = hspi1;
     if (imu_init(&imu) == RET_OK)
         HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
-
-    // mag.hspi = hspi2;
-    // if (mag_init(&mag) == RET_OK)
-    //     HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_SET);
+    
+    mag.hspi = hspi2;
+    if (mag_init(&mag) == RET_OK)
+        HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_SET);
+    */
         
-    HAL_Delay(3000);
     HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(USER_GPIO_Port, USER_Pin, GPIO_PIN_RESET);
     
-    /*
     dshot.stream[0].htim = dshot.stream[3].htim = htim2;
     dshot.stream[1].htim = dshot.stream[2].htim = htim5;
     dshot.stream[0].channel = TIM_CHANNEL_1;
@@ -159,18 +164,26 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi1, SPI_HandleTy
     dshot.stream[3].channel = TIM_CHANNEL_4;
     dshot.stream[0].freq = dshot.stream[1].freq = dshot.stream[2].freq = dshot.stream[3].freq = 84000000;
 
+    /*
+    __HAL_TIM_SET_COMPARE(htim5, TIM_CHANNEL_3, 168000 / 2 + 1000);
+    HAL_TIM_PWM_Start(htim5, TIM_CHANNEL_3);
+    
+    while (1)
+    {
+        __HAL_TIM_SET_COMPARE(htim5, TIM_CHANNEL_3, 168000 / 2);
+        HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
+        HAL_Delay(5000);
+        HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
+        __HAL_TIM_SET_COMPARE(htim5, TIM_CHANNEL_3, 168000 / 2 + 1000);
+        HAL_Delay(5000);
+
+    }
+    */
+
     dshot_init(&dshot);
 
-    uint16_t throttle1 = 0b10000010110;
-    uint16_t throttle2 = 0b10000110110;
-    uint16_t throttle3 = 0b10001110110;
-    uint16_t throttle4 = 0b10011110110;
-
-    dshot_encode(&dshot, throttle1, 0, DSHOT_CH_1);
-    dshot_encode(&dshot, throttle2, 0, DSHOT_CH_2);
-    dshot_encode(&dshot, throttle3, 0, DSHOT_CH_3);
-    dshot_encode(&dshot, throttle4, 0, DSHOT_CH_4);
-    */
 }
 
 void app(void)
@@ -188,6 +201,7 @@ void app(void)
     float m_x, m_y, m_z;
     float hpa, temp_bar, temp_mag;
 
+    
     Quaternion q_accel, q_gyro;
     Quaternion q_gyro_dot;
     Quaternion q_state, q_state_prev, q_state_dot;
@@ -198,22 +212,45 @@ void app(void)
     q_state_prev.q3 = 0;
     q_state_prev.q4 = 0;
 
-    volatile uint8_t busy = 0;
+    // rf_listen_it(&rx);
 
-    rf_listen_it(&rx);
 
+    HAL_Delay(1500);
+
+    DShotChannel starts[] = {DSHOT_CH_1, DSHOT_CH_2, DSHOT_CH_3, DSHOT_CH_4};
+
+    dshot_queue(&dshot, 0, 0, DSHOT_CH_1);
+    dshot_queue(&dshot, 0, 0, DSHOT_CH_2);
+    dshot_queue(&dshot, 0, 0, DSHOT_CH_3);
+    dshot_queue(&dshot, 0, 0, DSHOT_CH_4);
+
+    dshot_start(&dshot, starts, sizeof(starts) / sizeof(starts[0]));
+
+    HAL_Delay(2000);
+    
+    dshot_queue(&dshot, 48, 0, DSHOT_CH_1);
+    dshot_queue(&dshot, 48, 0, DSHOT_CH_2);
+    dshot_queue(&dshot, 48, 0, DSHOT_CH_3);
+    dshot_queue(&dshot, 48, 0, DSHOT_CH_4);
+
+    HAL_Delay(2000);
+
+    dshot_queue(&dshot, 500, 0, DSHOT_CH_1);
+    dshot_queue(&dshot, 500, 0, DSHOT_CH_2);
+    dshot_queue(&dshot, 500, 0, DSHOT_CH_3);
+    dshot_queue(&dshot, 500, 0, DSHOT_CH_4);
+
+
+    HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
+
+    
     while (1)
     {
-        /* Create timer to sample VBAT ADC every second or so*/
-        
-        /*
-        DShotChannel starts[4] = {DSHOT_CH_1, DSHOT_CH_2, DSHOT_CH_3, DSHOT_CH_4};
-        dshot_send(&dshot, starts, 4);
-        HAL_Delay(100);
-        */
 
+        /* Create timer to sample VBAT ADC every second or so*/
         // process remote sticks
         // compute target pitch, roll, yaw (rate)
+        
         /*
         if (rf_dr)
         {
@@ -235,6 +272,7 @@ void app(void)
             rf_dr = 0;
             rf_listen_it(&rx);
         } 
+    
         if (gyro_dr)
         {
             q_gyro.q1 = 0;
@@ -286,117 +324,119 @@ void app(void)
         */
     //    https://ahrs.readthedocs.io/en/latest/filters/madgwick.html#filter-gain
 
-        if (accel_dr)
-        {
-            HAL_GPIO_TogglePin(STAT2_GPIO_Port, STAT2_Pin);
+        // if (accel_dr)
+        // {
+        //     HAL_GPIO_TogglePin(STAT2_GPIO_Port, STAT2_Pin);
 
-            accel_dr = 0;
+        //     accel_dr = 0;
 
-            float meas_x, meas_y, meas_z;
-            q_gyro.q1 = 0;
-            imu_read_gyro_radps(&imu, &meas_x, &meas_y, &meas_z);  
-            // align sensor coordinates to body frame coordinates
-            q_gyro.q2 = meas_y;
-            q_gyro.q3 = meas_x;
-            q_gyro.q4 = meas_z;  
-
-            q_accel.q1 = 0;
-            imu_read_accel_mps2(&imu, &meas_x, &meas_y, &meas_z); 
-            // sensor coordinates --> body frame
-            q_accel.q2 = -meas_y;
-            q_accel.q3 = -meas_x;
-            q_accel.q4 = meas_z;  
-            // normalize acceleration
-            quat_normalize(&q_accel);
+        //     float meas_x, meas_y, meas_z;
+        //     q_gyro.q1 = 0;
+        //     imu_read_gyro_radps(&imu, &meas_x, &meas_y, &meas_z);  
+        //     // align sensor coordinates to body frame coordinates
+        //     // check these rotations line up correctly sign-wise
+        //     q_gyro.q2 = meas_y;
+        //     q_gyro.q3 = meas_x;
+        //     q_gyro.q4 = meas_z;  
+            
+        //     q_accel.q1 = 0;
+        //     imu_read_accel_mps2(&imu, &meas_x, &meas_y, &meas_z); 
+        //     // sensor coordinates --> body frame
+        //     // check these rotations line up correctly sign-wise
+        //     q_accel.q2 = -meas_y;
+        //     q_accel.q3 = -meas_x;
+        //     q_accel.q4 = meas_z;  
+        //     // normalize acceleration
+        //     quat_normalize(&q_accel);
             
             
-            // compute f_g(q, s_a)
-            // this is the error function: it calculates difference between predicted and measured state
-            float fg[3];
-            fg[0] = 2.0 * (q_state_prev.q2 * q_state_prev.q4 - q_state_prev.q1 * q_state_prev.q3) - q_accel.q2;            
-            fg[1] = 2.0 * (q_state_prev.q1 * q_state_prev.q2 + q_state_prev.q3 * q_state_prev.q4) - q_accel.q3;            
-            fg[2] = 2.0 * (0.5 - q_state_prev.q2 * q_state_prev.q2 - q_state_prev.q3 * q_state_prev.q3) - q_accel.q4;
+        //     // compute f_g(q, s_a)
+        //     // this is the error function: it calculates difference between predicted and measured state
+        //     float fg[3];
+        //     fg[0] = 2.0 * (q_state_prev.q2 * q_state_prev.q4 - q_state_prev.q1 * q_state_prev.q3) - q_accel.q2;            
+        //     fg[1] = 2.0 * (q_state_prev.q1 * q_state_prev.q2 + q_state_prev.q3 * q_state_prev.q4) - q_accel.q3;            
+        //     fg[2] = 2.0 * (0.5 - q_state_prev.q2 * q_state_prev.q2 - q_state_prev.q3 * q_state_prev.q3) - q_accel.q4;
             
-            // create Jacobian J_g(q)
-            // if quaternion slightly changes, how does error change?
-            // float Jg[3 * 4] = {-2.0 * q_state_prev.q3, 2.0 * q_state_prev.q4, -2.0 * q_state_prev.q1, 2.0 * q_state_prev.q2,
-            //                     2.0 * q_state_prev.q2, 2.0 * q_state_prev.q1, 2.0 * q_state_prev.q4, 2 * q_state_prev.q3,
-            //                     0.0, -4.0 * q_state_prev.q2, -4.0 * q_state_prev.q3, 0.0};
+        //     // create Jacobian J_g(q)
+        //     // if quaternion slightly changes, how does error change?
+        //     // float Jg[3 * 4] = {-2.0 * q_state_prev.q3, 2.0 * q_state_prev.q4, -2.0 * q_state_prev.q1, 2.0 * q_state_prev.q2,
+        //     //                     2.0 * q_state_prev.q2, 2.0 * q_state_prev.q1, 2.0 * q_state_prev.q4, 2 * q_state_prev.q3,
+        //     //                     0.0, -4.0 * q_state_prev.q2, -4.0 * q_state_prev.q3, 0.0};
             
-            float JgT[4 * 3] = {-2.0 * q_state_prev.q3, 2.0 * q_state_prev.q2, 0.0,
-                                2.0 * q_state_prev.q4, 2.0 * q_state_prev.q1, -4.0 * q_state_prev.q2,
-                                -2.0 * q_state_prev.q1, 2.0 * q_state_prev.q4, -4.0 * q_state_prev.q3,
-                                2.0 * q_state_prev.q2, 2.0 * q_state_prev.q3, 0.0};
+        //     float JgT[4 * 3] = {-2.0 * q_state_prev.q3, 2.0 * q_state_prev.q2, 0.0,
+        //                         2.0 * q_state_prev.q4, 2.0 * q_state_prev.q1, -4.0 * q_state_prev.q2,
+        //                         -2.0 * q_state_prev.q1, 2.0 * q_state_prev.q4, -4.0 * q_state_prev.q3,
+        //                         2.0 * q_state_prev.q2, 2.0 * q_state_prev.q3, 0.0};
                 
-            // compute quaternion derivative for gyro
-            // q_gyro_dot = 1/2 * q_state_prev * q_gyro 
-            quat_mult(q_state_prev, q_gyro, &q_gyro_dot);
-            quat_mult_scalar(&q_gyro_dot, 0.5);
+        //     // compute quaternion derivative for gyro
+        //     // q_gyro_dot = 1/2 * q_state_prev * q_gyro 
+        //     quat_mult(q_state_prev, q_gyro, &q_gyro_dot);
+        //     quat_mult_scalar(&q_gyro_dot, 0.5);
             
-            /*
-            arm_matrix_instance_f32 Jg_mat = {
-                .numRows = 3,
-                .numCols = 4,
-                .pData = Jg
-                };
-                */
+        //     /*
+        //     arm_matrix_instance_f32 Jg_mat = {
+        //         .numRows = 3,
+        //         .numCols = 4,
+        //         .pData = Jg
+        //         };
+        //         */
                 
-            arm_matrix_instance_f32 JgT_mat = {
-                .numRows = 4,
-                .numCols = 3,
-                .pData = JgT
-            };
+        //     arm_matrix_instance_f32 JgT_mat = {
+        //         .numRows = 4,
+        //         .numCols = 3,
+        //         .pData = JgT
+        //     };
             
-            arm_matrix_instance_f32 fg_mat = {
-                .numRows = 3,
-                .numCols = 1,
-                .pData = fg
-            };
+        //     arm_matrix_instance_f32 fg_mat = {
+        //         .numRows = 3,
+        //         .numCols = 1,
+        //         .pData = fg
+        //     };
             
-            float gradient[4];
-            arm_matrix_instance_f32 gradient_mat = {
-                .numRows = 4,
-                .numCols = 1,
-                .pData = gradient
-            };
+        //     float gradient[4];
+        //     arm_matrix_instance_f32 gradient_mat = {
+        //         .numRows = 4,
+        //         .numCols = 1,
+        //         .pData = gradient
+        //     };
             
             
             
-            // arm_mat_trans_f32(&Jg_mat, &JgT_mat);             // replace with hard coded transpose matrix
+        //     // arm_mat_trans_f32(&Jg_mat, &JgT_mat);             // replace with hard coded transpose matrix
             
-            // compute gradient = (J^T)f
-            // linear estimate of how uncertainty in inputs propagates into uncertainty in output
-            arm_mat_mult_f32(&JgT_mat, &fg_mat, &gradient_mat);
+        //     // compute gradient = (J^T)f
+        //     // linear estimate of how uncertainty in inputs propagates into uncertainty in output
+        //     arm_mat_mult_f32(&JgT_mat, &fg_mat, &gradient_mat);
             
-            Quaternion q_grad = {.q1 = gradient[0], .q2 = gradient[1], .q3 = gradient[2], .q4 = gradient[3]};
-            quat_normalize(&q_grad);
-            quat_mult_scalar(&q_grad, BETA);
-            quat_sub(q_gyro_dot, q_grad, &q_state_dot);
-            quat_mult_scalar(&q_state_dot, DELTA_T);
-            quat_add(q_state_prev, q_state_dot, &q_state);
-            quat_normalize(&q_state);
+        //     Quaternion q_grad = {.q1 = gradient[0], .q2 = gradient[1], .q3 = gradient[2], .q4 = gradient[3]};
+        //     quat_normalize(&q_grad);
+        //     quat_mult_scalar(&q_grad, BETA);
+        //     quat_sub(q_gyro_dot, q_grad, &q_state_dot);
+        //     quat_mult_scalar(&q_state_dot, DELTA_T);
+        //     quat_add(q_state_prev, q_state_dot, &q_state);
+        //     quat_normalize(&q_state);
             
-            q_state_prev.q1 = q_state.q1;
-            q_state_prev.q2 = q_state.q2;
-            q_state_prev.q3 = q_state.q3;
-            q_state_prev.q4 = q_state.q4;
+        //     q_state_prev.q1 = q_state.q1;
+        //     q_state_prev.q2 = q_state.q2;
+        //     q_state_prev.q3 = q_state.q3;
+        //     q_state_prev.q4 = q_state.q4;
             
-            // float pitch, roll, yaw;
-            // quat_to_euler(q_state, &pitch, &roll, &yaw);        // verify pitch, roll, yaw estimates
-            // pitch *= 180.0 / PI;
-            // roll *= 180.0 / PI;
-            // yaw *= 180.0 / PI;
-            // yaw = 0.0f;
+        //     // float pitch, roll, yaw;
+        //     // quat_to_euler(q_state, &pitch, &roll, &yaw);        // verify pitch, roll, yaw estimates
+        //     // pitch *= 180.0 / PI;
+        //     // roll *= 180.0 / PI;
+        //     // yaw *= 180.0 / PI;
+        //     // yaw = 0.0f;
 
-            // char data[100];
-            // uint8_t len = sprintf(data, "%d,%d,%d\r\n", (int) pitch, (int) roll, (int) yaw);
+        //     // char data[100];
+        //     // uint8_t len = sprintf(data, "%d,%d,%d\r\n", (int) pitch, (int) roll, (int) yaw);
             
-            float data[] = {q_state.q1, q_state.q2, q_state.q3, q_state.q4};
-            // float data[] = {q_gyro.q2, q_gyro.q3, q_gyro.q4, 0.0f};
-            CDC_Transmit_FS((uint8_t *) data, sizeof(data));
-            // uint8_t status = CDC_Transmit_FS((uint8_t *) data, len);
+        //     float data[] = {q_state.q1, q_state.q2, q_state.q3, q_state.q4};
+        //     // float data[] = {q_gyro.q2, q_gyro.q3, q_gyro.q4, 0.0f};
+        //     CDC_Transmit_FS((uint8_t *) data, sizeof(data));
+        //     // uint8_t status = CDC_Transmit_FS((uint8_t *) data, len);
 
-        }
+        // }
                     
     }
 }

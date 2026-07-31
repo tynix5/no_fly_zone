@@ -7,7 +7,8 @@
 
 /************************** DShot Packet Specifications ***********************/
 #define DSHOT_FRAME_W                       16
-#define DSHOT_PKT_W                         DSHOT_FRAME_W + 1               // include extra 0 duty cycle at end of packet for preload CMPRx
+#define DSHOT_MIN_PKT_W                     DSHOT_FRAME_W + 1               // include extra 0 duty cycle at end of packet for preload CMPRx
+#define DSHOT_MAX_PKT_W                     512                             // > (min(DSHOT_BR_x) / min(DSHOT_FREQ_x))
 
 #define DSHOT_THROTTLE_W                    11
 #define DSHOT_TEL_REQ_W                     1
@@ -100,12 +101,22 @@ typedef enum : uint8_t {
 typedef enum : uint8_t {
 
     // kbit/s
-    DSHOT_BR_150 = 0,
-    DSHOT_BR_300,
-    DSHOT_BR_600,
-    DSHOT_BR_1200
+    DSHOT_BR_150_KBPS = 0,
+    DSHOT_BR_300_KBPS,
+    DSHOT_BR_600_KBPS,
+    DSHOT_BR_1200_KBPS
 
 } DShotBitrate;
+
+typedef enum : uint8_t {
+
+    DSHOT_FREQ_500_HZ = 0,
+    DSHOT_FREQ_1_KHZ,
+    DSHOT_FREQ_2_KHZ,
+    DSHOT_FREQ_4_KHZ,
+    DSHOT_FREQ_8_KHZ,
+
+} DShotFreq;
 
 typedef struct {
 
@@ -118,6 +129,7 @@ typedef struct {
 typedef struct {
 
     DShotBitrate bitrate;                                   // DShot bit rate
+    DShotFreq frequency;                                    // DShot packet sent rate
     uint8_t n;                                              // number of active DShot channels
 
     DShotStream stream[DSHOT_MAX_N];                        // unique DShot channel parameters
@@ -126,10 +138,12 @@ typedef struct {
 
 /* Set timer ARR's, calculate CCRx values need for '1' and '0' bits */
 ErrorType dshot_init(DShotParams * dshot);
+/* Start continuously sending DShot packets on selected channels */
+ErrorType dshot_start(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n);
+/* Disable DShot packets */
+ErrorType dshot_stop(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n);
 /* Encode throttle amount into 17-byte packet */
-ErrorType dshot_encode(DShotParams * dshot, uint16_t throttle, uint8_t tel_req, DShotChannel ch);
-/* Start DMA on selected channels */
-ErrorType dshot_send(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n);
+ErrorType dshot_queue(DShotParams * dshot, uint16_t throttle, uint8_t tel_req, DShotChannel ch);
 /* DMA interrupt callback - calls when all 17 bytes have been transferred to CCRx */
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim);
 

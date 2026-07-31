@@ -69,8 +69,8 @@ static void MX_ADC1_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_SPI3_Init(void);
 static void MX_TIM2_Init(void);
-static void MX_USART1_UART_Init(void);
 static void MX_TIM5_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -115,9 +115,9 @@ int main(void)
   MX_SPI2_Init();
   MX_SPI3_Init();
   MX_TIM2_Init();
-  MX_USART1_UART_Init();
-  MX_USB_DEVICE_Init();
   MX_TIM5_Init();
+  MX_USB_DEVICE_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   app_init(&hadc1, &hspi1, &hspi2, &hspi3, &htim2, &htim5, &huart1);
   /* USER CODE END 2 */
