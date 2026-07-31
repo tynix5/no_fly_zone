@@ -33,20 +33,28 @@ OLEDPages oled_page = PAGE_1;
 uint8_t oled_updated = 0;
 
 // nRF24L01 parameters, should match receiver params
-static RadioParams tx = {
-    
-    .this_addr = RF_TX_ADDR,
-    .node_addr = RF_RX_ADDR,
+RadioParams tx = {
+
     .ce_gpio = RF_CE_GPIO_Port,
     .ce_pin = RF_CE_Pin,
     .cs_gpio = RF_CS_GPIO_Port,
     .cs_pin = RF_CS_Pin,
     .delay_ms = HAL_Delay,
-    .power_level = RF_PWR_0DBM,
-    .data_rate = RF_DR_2MBPS,
+
+    .this_addr = RF_RX_ADDR,
+    .node_addr = RF_TX_ADDR,
+
+    .power_level = NRF_TX_PWR_0DBM,
+    .data_rate = NRF_DATARATE_2MBPS,
     .freq_ch = 2,
-    .payload_type = DYNAMIC_PAYLOAD,
-    .ack = ENABLE_ACK
+    .payload_type = NRF_PAYLOAD_DYNAMIC,
+    .ack = FEAT_ENABLE,
+
+    .RadioIrqs = {
+        .rx_dr = FEAT_DISABLE,
+        .tx_ds = FEAT_DISABLE,
+        .max_rt = FEAT_DISABLE
+    }
 };
 
 static void rf_send_packet(PacketParams * packet, AckParams * ack);

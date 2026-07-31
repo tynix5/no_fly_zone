@@ -10,7 +10,7 @@ import numpy as np
 # -----------------------------
 # Configuration
 # -----------------------------
-COM_PORT = "COM11"
+COM_PORT = "COM3"
 BAUD = 115200
 
 pitch = 0.0

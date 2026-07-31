@@ -11,7 +11,7 @@ import numpy as np
 # Serial configuration
 # ==========================
 
-PORT = "COM11"      # change this
+PORT = "COM3"      # change this
 BAUD = 115200
 
 ser = serial.Serial(PORT, BAUD, timeout=0)
