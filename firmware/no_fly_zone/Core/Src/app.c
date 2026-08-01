@@ -226,7 +226,7 @@ void app(void)
 
     dshot_start(&dshot, starts, sizeof(starts) / sizeof(starts[0]));
 
-    HAL_Delay(2000);
+    HAL_Delay(1000);
     
     dshot_queue(&dshot, 48, 0, DSHOT_CH_1);
     dshot_queue(&dshot, 48, 0, DSHOT_CH_2);
@@ -235,14 +235,8 @@ void app(void)
 
     HAL_Delay(2000);
 
-    dshot_queue(&dshot, 500, 0, DSHOT_CH_1);
-    dshot_queue(&dshot, 500, 0, DSHOT_CH_2);
-    dshot_queue(&dshot, 500, 0, DSHOT_CH_3);
-    dshot_queue(&dshot, 500, 0, DSHOT_CH_4);
-
-
-    HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
-
+    uint16_t speed = 48;
+    int8_t dir = 1;
     
     while (1)
     {
@@ -250,6 +244,22 @@ void app(void)
         /* Create timer to sample VBAT ADC every second or so*/
         // process remote sticks
         // compute target pitch, roll, yaw (rate)
+
+        uint32_t start_tick = HAL_GetTick();
+
+        dshot_queue(&dshot, speed, 0, DSHOT_CH_1);
+        dshot_queue(&dshot, speed, 0, DSHOT_CH_2);
+        dshot_queue(&dshot, speed, 0, DSHOT_CH_3);
+        dshot_queue(&dshot, speed, 0, DSHOT_CH_4);
+
+        while (HAL_GetTick() - start_tick < 20);
+
+        speed += dir;
+
+        if (speed == 300)
+            dir = -1;
+        if (speed == 47)
+            dir = 1;
         
         /*
         if (rf_dr)

@@ -66,7 +66,7 @@ Contains 8 M3 screw holes, 4 for each board. Not shown for brevity.
 
 This revision involved consolidating the sensor board and MCU and removing the onboard magnetometer and GPS. The goal of this project was to achieve simple flight manuevers and hovering, and using these sensors would require more in depth sensor fusion algorithms. The antenna section was improved with further RF shielding and stitching vias, as well as a taper from the RF unbalanced port to the SMA pad. The board stackup changed from SIG - GND - 3.3V - SIG to a SIG - GND - GND - SIG + 3.3V to reduce buck converter and RF noise. 
 
-Revision 1.0 board worked, but there were some problems with the JST connectors, making it hard to keep communication with the sensors, and they would not have been very reliable in a noisy and harsh environment.
+Revision 1.0 board worked, but there were some problems with the JST connectors, making it hard to keep communication with the sensors, and they would not have been very reliable in a noisy and harsh environment. Ground lines were needed next to every signal line, but only one ground line was used on the entire board (power connector).
 
 ### Schematics
 

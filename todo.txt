@@ -1,26 +1,12 @@
 Software
-1. All sensor libraries need to change to using enums for arguments (~2 hours)
-2. Add specific configuration functions for each sensor (set ODR, set ...) (~8 hours)
-3. All structs need to follow CamelCase (~15 minutes)
-4. Add return types to all sensor functions to check for errors (~2 hours)
-5. Modify error_types names (~15 minutes)
-6. More in depth configuration of IMU and sensors (~4 hours)
-7. Test GPS (---)
+1. Test GPS
+2. remote - assign euler angles to stick positions --> convert to quaternions --> send
+3. quad - receive quaternions, calculate error, assign motor speeds
+4. DMA with SPI on RF? 
+5. Add ADC sampling for battery level
+6. OTG tunable PID
+7. PWM works but DSHOT does not
 
 KiCAD
-1. Add ground trace to all connectors (~2 hours)
-2. Fix USB lines and place ESD diodes on trace path. Ensure 90 ohm impedance (~1 hour)
-3. Test buck converter circuit (~30 minutes)
-4. More strict CPWG on nRF section (~30 minutes)
-
-Physical
-1. Shorten connector wires (~1 hour)
-2. Rewire ESC connector (~1 hour)
-
-
-Future
-1. Add filtering functions for IMU (low pass gyro, high pass accel)
-2. Create magdwick filtering
-3. Add PWM for motors
-4. Add ADC sampling for battery level
-5. OTG tunable PID
+1. Test new board
+2. Make better version? with magnetometer?
