@@ -105,7 +105,7 @@ ErrorType dshot_init(DShotParams * dshot)
         if (arr < 20)                                               // timer frequency needs to be higher to achieve accurate bit times
             return RET_INVALID_CFG;
 
-        __HAL_TIM_SET_AUTORELOAD(dshot->stream[i].htim, arr - 1);         // set ARR value to achieve desired frequency
+        __HAL_TIM_SET_AUTORELOAD(dshot->stream[i].htim, arr - 1);   // set ARR value to achieve desired frequency
         t1h_ccr[i] = (uint32_t) (DSHOT_T1H_FRAC * arr) - 1;         // calculate CCRx value for '1' bit
         t0h_ccr[i] = (uint32_t) (DSHOT_T0H_FRAC * arr) - 1;         // calculate CCRx value for '0' bit
     }

@@ -61,7 +61,6 @@ Core/Src/sysmem.c \
 Core/Src/syscalls.c \
 Core/Src/app.c \
 Core/Src/dshot.c \
-Core/Src/quaternion.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_spi.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c \
@@ -82,6 +81,7 @@ Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.c
 C_SOURCES += $(LIB_DIR)/nrf24l01/nrf24.c
 C_SOURCES += $(LIB_DIR)/lps25hb/lps25hb.c
 C_SOURCES += $(LIB_DIR)/lsm6ds3tr/lsm6ds3tr.c
+C_SOURCES += $(LIB_DIR)/quaternion/quaternion.c
 
 
 # ASM sources
@@ -158,6 +158,7 @@ C_INCLUDES += -I$(LIB_DIR)/nrf24l01
 C_INCLUDES += -I$(LIB_DIR)/lps25hb
 C_INCLUDES += -I$(LIB_DIR)/lsm6ds3tr
 C_INCLUDES += -I$(LIB_DIR)/error_types
+C_INCLUDES += -I$(LIB_DIR)/quaternion
 
 C_INCLUDES += -I$(USB_DIR)/App
 C_INCLUDES += -I$(USB_DIR)/Target

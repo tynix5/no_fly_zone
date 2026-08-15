@@ -98,6 +98,7 @@ ImuParams imu = {
 };
 
 DShotParams dshot = {
+    
     .bitrate = DSHOT_BR_300_KBPS,
     .frequency = DSHOT_FREQ_4_KHZ,
     .n = 4
@@ -117,22 +118,23 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi2, SPI_HandleTy
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);
     
     rx.hspi = hspi3;
-    rf_init(&rx);
+    if (rf_init(&rx) == RF_SUCCESS)
+        HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
     
     bar.hspi = hspi2;
     if (bar_init(&bar) == RET_OK)
-        HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
     
     imu.hspi = hspi2;
     if (imu_init(&imu) == RET_OK)
-        HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_SET);
     
     HAL_Delay(1000);
         
     HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_RESET);
-    
+
     dshot.stream[0].htim = dshot.stream[3].htim = htim2;
     dshot.stream[1].htim = dshot.stream[2].htim = htim5;
     dshot.stream[0].channel = TIM_CHANNEL_1;
@@ -157,8 +159,7 @@ void app(void)
     uint8_t send = 0;
     
     float a_x, a_y, a_z, w_x, w_y, w_z;
-    float m_x, m_y, m_z;
-    float hpa, temp_bar, temp_mag;
+    float hpa, temp_bar;
 
     
     Quaternion q_accel, q_gyro;
@@ -177,9 +178,10 @@ void app(void)
     while (1)
     {
 
-        /* Create timer to sample VBAT ADC every second or so*/
-        // process remote sticks
+        /* Create timer to sample VBAT ADC every second or so */
+        // drone is disarmed until user pulls down on joystick and presses encoder switch?
         // compute target pitch, roll, yaw (rate)
+        // 
         
         if (rf_dr)
         {

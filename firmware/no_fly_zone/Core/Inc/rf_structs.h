@@ -12,6 +12,10 @@
 // packet sent from remote to quadcopter
 typedef struct {
 
+    // Quaternion quat_des;
+    // float yaw_rate;
+    // uint8_t armed;
+
     uint8_t pitch;
     uint8_t throttle;
     uint8_t yaw;
