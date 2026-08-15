@@ -1,12 +1,10 @@
 Software
 1. Test GPS
-2. remote - assign euler angles to stick positions --> convert to quaternions --> send
-3. quad - receive quaternions, calculate error, assign motor speeds
-4. DMA with SPI on RF? 
-5. Add ADC sampling for battery level
-6. OTG tunable PID
-7. PWM works but DSHOT does not
+2. Modify all libraries to separate API calls from physical layer calls
+3. Add functionality for DMA, polling/blocking, EXTI, etc to libraries
+4. Change universal return type to status_t
+5. Change all structs *params to *_handle_t
+6. Follow conventions.md
 
 KiCAD
-1. Test new board
-2. Make better version? with magnetometer?
+1. Upgrade to smaller board with same components? potentially remove barometer
