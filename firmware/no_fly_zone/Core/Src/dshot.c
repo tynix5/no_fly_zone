@@ -26,13 +26,13 @@ static uint8_t channel_en[DSHOT_MAX_N];                         // is current ch
 // 8. preload compare register is transferred to compare register
 // 9. After packet width # of transfers, packets_temp is loaded into packets, restarting process
 
-ErrorType dshot_init(DShotParams * dshot)
+status_t dshot_init(DShotParams * dshot)
 {
     // PREREQUISITE
     // MUST HAVE DMA STREAMS FOR EACH TIMER AND CHANNEL ENABLED IN CUBEMX (CIRCULAR MODE)
     // Can use any channel with any timer frequency
     if (dshot->n > DSHOT_MAX_N || dshot->bitrate > DSHOT_BR_1200_KBPS || dshot->frequency > DSHOT_FREQ_8_KHZ)
-        return RET_INVALID_CFG;
+        return STATUS_INVALID;
     
     for (uint8_t i = 0; i < dshot->n; i++)
     {
@@ -64,7 +64,7 @@ ErrorType dshot_init(DShotParams * dshot)
                 break;
 
             default:
-                return RET_INVALID_CFG;
+                return STATUS_INVALID;
         }
 
         // select packet frequency
@@ -91,33 +91,33 @@ ErrorType dshot_init(DShotParams * dshot)
                 break;
             
             default:
-                return RET_INVALID_CFG;
+                return STATUS_INVALID;
         }
 
         uint32_t arr = (uint32_t) (tim_freq / dshot_bit_freq);                      // calculate timer period for one bit
         uint32_t pkt_len = (uint32_t) (dshot_bit_freq / dshot_pkt_freq);            // calculate total timer cycles needed to achieve frequency
 
         if (pkt_len < DSHOT_MIN_PKT_W)                                  // dshot packet needs to be completed before next one begins
-            return RET_INVALID_CFG;
+            return STATUS_INVALID;
 
         packets_len[i] = pkt_len;
 
         if (arr < 20)                                               // timer frequency needs to be higher to achieve accurate bit times
-            return RET_INVALID_CFG;
+            return STATUS_INVALID;
 
         __HAL_TIM_SET_AUTORELOAD(dshot->stream[i].htim, arr - 1);   // set ARR value to achieve desired frequency
         t1h_ccr[i] = (uint32_t) (DSHOT_T1H_FRAC * arr) - 1;         // calculate CCRx value for '1' bit
         t0h_ccr[i] = (uint32_t) (DSHOT_T0H_FRAC * arr) - 1;         // calculate CCRx value for '0' bit
     }
 
-    return RET_OK;
+    return STATUS_OK;
 }
 
-ErrorType dshot_start(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n)
+status_t dshot_start(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n)
 {
     // send encoded packet on selected channels (n # of channels)
     if (n > dshot->n)
-        return RET_INVALID_CFG;
+        return STATUS_INVALID;
 
     for (uint8_t i = 0; i < n; i++)
     {
@@ -129,13 +129,13 @@ ErrorType dshot_start(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n
             continue;
     }
 
-    return RET_OK;
+    return STATUS_OK;
 }
 
-ErrorType dshot_stop(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n)
+status_t dshot_stop(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n)
 {
     if (n > dshot->n)
-        return RET_INVALID_CFG;
+        return STATUS_INVALID;
 
     // disable channel
     for (uint8_t i = 0; i < n; i++)
@@ -144,16 +144,16 @@ ErrorType dshot_stop(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n)
         channel_en[ch] = 0;
     }
 
-    return RET_OK;
+    return STATUS_OK;
 }
 
-ErrorType dshot_queue(DShotParams * dshot, uint16_t throttle, uint8_t tel_req, DShotChannel ch)
+status_t dshot_queue(DShotParams * dshot, uint16_t throttle, uint8_t tel_req, DShotChannel ch)
 {
     if (throttle > DSHOT_MAX_THROTTLE)
-        return RET_INVALID_CFG;
+        return STATUS_INVALID;
 
     if (ch >= dshot->n)
-        return RET_INVALID_CFG;
+        return STATUS_INVALID;
 
     uint16_t data = (throttle << 1) | !!tel_req;
     uint8_t ind = 0;
@@ -190,7 +190,7 @@ ErrorType dshot_queue(DShotParams * dshot, uint16_t throttle, uint8_t tel_req, D
         packets_temp[ch][i] = 0;
     }
 
-    return RET_OK;
+    return STATUS_OK;
 }
 
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)

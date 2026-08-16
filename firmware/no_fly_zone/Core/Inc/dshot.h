@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include "stm32f4xx_hal.h"
-#include "error_types.h"
+#include "generic_types.h"
 
 /************************** DShot Packet Specifications ***********************/
 #define DSHOT_FRAME_W                       16
@@ -137,13 +137,13 @@ typedef struct {
 } DShotParams;
 
 /* Set timer ARR's, calculate CCRx values need for '1' and '0' bits */
-ErrorType dshot_init(DShotParams * dshot);
+status_t dshot_init(DShotParams * dshot);
 /* Start continuously sending DShot packets on selected channels */
-ErrorType dshot_start(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n);
+status_t dshot_start(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n);
 /* Disable DShot packets */
-ErrorType dshot_stop(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n);
+status_t dshot_stop(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n);
 /* Encode throttle amount into 17-byte packet */
-ErrorType dshot_queue(DShotParams * dshot, uint16_t throttle, uint8_t tel_req, DShotChannel ch);
+status_t dshot_queue(DShotParams * dshot, uint16_t throttle, uint8_t tel_req, DShotChannel ch);
 /* DMA interrupt callback - calls when all 17 bytes have been transferred to CCRx */
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim);
 

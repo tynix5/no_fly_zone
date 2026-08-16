@@ -157,7 +157,7 @@ C_INCLUDES =  \
 C_INCLUDES += -I$(LIB_DIR)/nrf24l01
 C_INCLUDES += -I$(LIB_DIR)/lps25hb
 C_INCLUDES += -I$(LIB_DIR)/lsm6ds3tr
-C_INCLUDES += -I$(LIB_DIR)/error_types
+C_INCLUDES += -I$(LIB_DIR)/generic_types
 C_INCLUDES += -I$(LIB_DIR)/quaternion
 
 C_INCLUDES += -I$(USB_DIR)/App

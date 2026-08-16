@@ -20,7 +20,7 @@
 #define RF_TX_ADDR                  0xC2C2C2C2
 #define RF_RX_ADDR                  0xE7E7E7E7
 
-RadioParams rx = {
+nrf_handle_t rx = {
 
     .ce_gpio = RF_CE_GPIO_Port,
     .ce_pin = RF_CE_Pin,
@@ -37,7 +37,7 @@ RadioParams rx = {
     .payload_type = NRF_PAYLOAD_DYNAMIC,
     .ack = FEAT_ENABLE,
 
-    .RadioIrqs = {
+    .nrf_irqs_t = {
         .rx_dr = FEAT_ENABLE,
         .tx_ds = FEAT_DISABLE,
         .max_rt = FEAT_DISABLE
@@ -51,7 +51,7 @@ uint8_t gyro_dr = 0, accel_dr = 0;
 uint8_t bar_dr = 0;
 
 
-BarParams bar = {
+lps25_handle_t bar = {
 
     .cs_gpio = BAR_CS_GPIO_Port,
     .cs = BAR_CS_Pin,
@@ -60,38 +60,38 @@ BarParams bar = {
     .odr = BAR_ODR_1HZ,
     .it = BAR_INT_DRDY,
 
-    .FifoParams = {
+    .fifo_handle_t = {
         .mode = BAR_FIFO_BYPASS,
         .thresh = 31,
         .mov_smp = BAR_MOV_AVG_SMP_NONE
     }
 };
 
-ImuParams imu = {
+lsm6_handle_t imu = {
 
     .cs_gpio = IMU_CS_GPIO_Port,
     .cs = IMU_CS_Pin,
     .delay_ms = HAL_Delay,
 
-    .GyroParams = {
+    .gyro_handle_t = {
         .odr = IMU_ODR_G_1_66KHZ,
         .fs = IMU_FS_G_1000DPS,
         .filt = IMU_HPF_EN,
         .cutoff = IMU_HP_G_16MILHZ
     },
 
-    .AccelParams = {
+    .accel_handle_t = {
         .odr = IMU_ODR_XL_1_66KHZ,
         .fs = IMU_FS_XL_8G,
         .filt = IMU_LPF_EN
     },
 
-    .FifoParams = {
+    .fifo_handle_t = {
         .mode = IMU_FIFO_BYPASS,
         .odr = IMU_ODR_FIFO_DISABLE
     },
 
-    .IntParams = {
+    .int_handle_t = {
         .int1 = IMU_INT1_DRDY_G,
         .int2 = IMU_INT2_DRDY_XL
     }
@@ -122,11 +122,11 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi2, SPI_HandleTy
         HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
     
     bar.hspi = hspi2;
-    if (bar_init(&bar) == RET_OK)
+    if (bar_init(&bar) == STATUS_OK)
         HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
     
     imu.hspi = hspi2;
-    if (imu_init(&imu) == RET_OK)
+    if (imu_init(&imu) == STATUS_OK)
         HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_SET);
     
     HAL_Delay(1000);
@@ -162,9 +162,9 @@ void app(void)
     float hpa, temp_bar;
 
     
-    Quaternion q_accel, q_gyro;
-    Quaternion q_gyro_dot;
-    Quaternion q_state, q_state_prev, q_state_dot;
+    quaternion_t q_accel, q_gyro;
+    quaternion_t q_gyro_dot;
+    quaternion_t q_state, q_state_prev, q_state_dot;
 
     // initial state
     q_state_prev.q1 = 1.0;
@@ -334,7 +334,7 @@ void app(void)
             // linear estimate of how uncertainty in inputs propagates into uncertainty in output
             arm_mat_mult_f32(&JgT_mat, &fg_mat, &gradient_mat);
             
-            Quaternion q_grad = {.q1 = gradient[0], .q2 = gradient[1], .q3 = gradient[2], .q4 = gradient[3]};
+            quaternion_t q_grad = {.q1 = gradient[0], .q2 = gradient[1], .q3 = gradient[2], .q4 = gradient[3]};
             quat_normalize(&q_grad);
             quat_mult_scalar(&q_grad, BETA);
             quat_sub(q_gyro_dot, q_grad, &q_state_dot);
