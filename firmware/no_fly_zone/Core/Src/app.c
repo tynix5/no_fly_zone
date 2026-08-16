@@ -97,7 +97,7 @@ lsm6_handle_t imu = {
     }
 };
 
-DShotParams dshot = {
+dshot_handle_t dshot = {
     
     .bitrate = DSHOT_BR_300_KBPS,
     .frequency = DSHOT_FREQ_4_KHZ,

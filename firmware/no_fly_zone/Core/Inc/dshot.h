@@ -84,7 +84,7 @@ typedef enum : uint8_t {
     DSHOT_CMD_SIG_LINE_ERPM_TEL,
     DSHOT_CMD_SIG_LINE_ERPM_PER_TEL
 
-} DShotCommand;
+} dshot_command_t;
 
 // channel number corresponds to the order in which they are listed in init()
 typedef enum : uint8_t {
@@ -96,7 +96,7 @@ typedef enum : uint8_t {
     DSHOT_CH_5,
     DSHOT_CH_6
 
-} DShotChannel;
+} dshot_channel_t;
 
 typedef enum : uint8_t {
 
@@ -106,7 +106,7 @@ typedef enum : uint8_t {
     DSHOT_BR_600_KBPS,
     DSHOT_BR_1200_KBPS
 
-} DShotBitrate;
+} dshot_bitrate_t;
 
 typedef enum : uint8_t {
 
@@ -116,7 +116,7 @@ typedef enum : uint8_t {
     DSHOT_FREQ_4_KHZ,
     DSHOT_FREQ_8_KHZ,
 
-} DShotFreq;
+} dshot_freq_t;
 
 typedef struct {
 
@@ -124,26 +124,26 @@ typedef struct {
     uint32_t channel;                                       // channels used for each timer (channel # must line up with timer in htims)
     uint32_t freq;                                          // timer frequencies --> used to calculate ARR and CCRx
 
-} DShotStream;
+} dshot_stream_t;
 
 typedef struct {
 
-    DShotBitrate bitrate;                                   // DShot bit rate
-    DShotFreq frequency;                                    // DShot packet sent rate
+    dshot_bitrate_t bitrate;                                   // DShot bit rate
+    dshot_freq_t frequency;                                    // DShot packet sent rate
     uint8_t n;                                              // number of active DShot channels
 
-    DShotStream stream[DSHOT_MAX_N];                        // unique DShot channel parameters
+    dshot_stream_t stream[DSHOT_MAX_N];                        // unique DShot channel parameters
 
-} DShotParams;
+} dshot_handle_t;
 
 /* Set timer ARR's, calculate CCRx values need for '1' and '0' bits */
-status_t dshot_init(DShotParams * dshot);
+status_t dshot_init(dshot_handle_t * dshot);
 /* Start continuously sending DShot packets on selected channels */
-status_t dshot_start(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n);
+status_t dshot_start(dshot_handle_t * dshot, dshot_channel_t * selected_ch, uint8_t n);
 /* Disable DShot packets */
-status_t dshot_stop(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n);
+status_t dshot_stop(dshot_handle_t * dshot, dshot_channel_t * selected_ch, uint8_t n);
 /* Encode throttle amount into 17-byte packet */
-status_t dshot_queue(DShotParams * dshot, uint16_t throttle, uint8_t tel_req, DShotChannel ch);
+status_t dshot_queue(dshot_handle_t * dshot, uint16_t throttle, uint8_t tel_req, dshot_channel_t ch);
 /* DMA interrupt callback - calls when all 17 bytes have been transferred to CCRx */
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim);
 

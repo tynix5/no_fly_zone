@@ -2,7 +2,7 @@
 #include <string.h>
 
 /************************* DShot Helper Functions **********************/
-static void dshot_calculate_crc(uint16_t data, DShotChannel ch);
+static void dshot_calculate_crc(uint16_t data, dshot_channel_t ch);
 /***********************************************************************/
 
 // index 0 in these arrays corresponds to DSHOT_CH_1
@@ -26,7 +26,7 @@ static uint8_t channel_en[DSHOT_MAX_N];                         // is current ch
 // 8. preload compare register is transferred to compare register
 // 9. After packet width # of transfers, packets_temp is loaded into packets, restarting process
 
-status_t dshot_init(DShotParams * dshot)
+status_t dshot_init(dshot_handle_t * dshot)
 {
     // PREREQUISITE
     // MUST HAVE DMA STREAMS FOR EACH TIMER AND CHANNEL ENABLED IN CUBEMX (CIRCULAR MODE)
@@ -113,7 +113,7 @@ status_t dshot_init(DShotParams * dshot)
     return STATUS_OK;
 }
 
-status_t dshot_start(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n)
+status_t dshot_start(dshot_handle_t * dshot, dshot_channel_t * selected_ch, uint8_t n)
 {
     // send encoded packet on selected channels (n # of channels)
     if (n > dshot->n)
@@ -121,7 +121,7 @@ status_t dshot_start(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n)
 
     for (uint8_t i = 0; i < n; i++)
     {
-        DShotChannel ch = selected_ch[i];
+        dshot_channel_t ch = selected_ch[i];
         channel_en[ch] = 1;                      // channel is active
 
         // if channel is already active, skip
@@ -132,7 +132,7 @@ status_t dshot_start(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n)
     return STATUS_OK;
 }
 
-status_t dshot_stop(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n)
+status_t dshot_stop(dshot_handle_t * dshot, dshot_channel_t * selected_ch, uint8_t n)
 {
     if (n > dshot->n)
         return STATUS_INVALID;
@@ -140,14 +140,14 @@ status_t dshot_stop(DShotParams * dshot, DShotChannel * selected_ch, uint8_t n)
     // disable channel
     for (uint8_t i = 0; i < n; i++)
     {
-        DShotChannel ch = selected_ch[i];
+        dshot_channel_t ch = selected_ch[i];
         channel_en[ch] = 0;
     }
 
     return STATUS_OK;
 }
 
-status_t dshot_queue(DShotParams * dshot, uint16_t throttle, uint8_t tel_req, DShotChannel ch)
+status_t dshot_queue(dshot_handle_t * dshot, uint16_t throttle, uint8_t tel_req, dshot_channel_t ch)
 {
     if (throttle > DSHOT_MAX_THROTTLE)
         return STATUS_INVALID;
@@ -240,7 +240,7 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 }
 
 /************************* DShot Helper Functions **********************/
-static void dshot_calculate_crc(uint16_t data, DShotChannel ch)
+static void dshot_calculate_crc(uint16_t data, dshot_channel_t ch)
 {
     // XOR all nibbles together
     uint8_t crc = ((data ^ (data >> 4)) ^ (data >> 8)) & 0x0f;
