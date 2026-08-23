@@ -90,7 +90,7 @@ static void gyro_to_body_frame(float x_rad, float y_rad, float z_rad, madgwick_s
     state->q_gyro.q1 = 0;
     state->q_gyro.q2 = y_rad;
     state->q_gyro.q3 = x_rad;
-    state->q_gyro.q4 = z_rad;
+    state->q_gyro.q4 = -z_rad;
 }
 
 static void compute_err(madgwick_state_t * state, float * fg)

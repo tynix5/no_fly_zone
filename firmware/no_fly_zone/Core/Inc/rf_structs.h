@@ -7,25 +7,23 @@
 #define ARMED_KEY    0xAA
 #define DISARMED_KEY 0x55
 
-typedef enum
+typedef enum : uint8_t
 {
     QUAD_STATUS_DISARMED = 0,
-    QUAD_STATUS_ARMED
+    QUAD_STATUS_ARMED,
 
 } quad_arm_status_t;
 
 // packet sent from remote to quadcopter
-typedef struct
+typedef struct __attribute__((packed))
 {
-
     uint16_t throttle;
-    quaternion_t * q_des;
-    float yaw_rate;
+    quaternion_t q_des;
     float kp;
     float ki;
     float kd;
 
-    quad_arm_status_t armed;
+    uint8_t armed;
 
 } rf_packet_params_t;
 
@@ -33,7 +31,7 @@ typedef struct
 typedef struct
 {
 
-    quad_arm_status_t armed;
+    uint8_t armed;
     uint8_t rx_batt_lvl;
 
 } rf_ack_params_t;

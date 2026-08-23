@@ -98,6 +98,8 @@ uint8_t mag_dr = 0;
 uint8_t gyro_dr = 0, accel_dr = 0;
 uint8_t bar_dr = 0;
 
+static void clamp(uint16_t * x, uint16_t min, uint16_t max);
+
 void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi2, SPI_HandleTypeDef * hspi3, TIM_HandleTypeDef * htim2, TIM_HandleTypeDef * htim5)
 {
     // deselect all slaves at start
@@ -152,9 +154,10 @@ void app(void)
     rf_packet_params_t pkt;
     rf_ack_params_t ack;
 
-    motor_speeds_t motor_speeds;
+    // motor_speeds_t motor_speeds;
 
     const float k_att = 10.0;
+
 
     quad_arm_status_t mode = QUAD_STATUS_DISARMED;
     dshot_channel_t motor_ch[4] = { DSHOT_CH_1, DSHOT_CH_2, DSHOT_CH_3, DSHOT_CH_4 };
@@ -175,7 +178,7 @@ void app(void)
             uint8_t pkt_size;
 
             // build ack packet in here
-            ack.armed = mode;
+            ack.armed = (mode == QUAD_STATUS_ARMED) ? ARMED_KEY : DISARMED_KEY;
             ack.rx_batt_lvl = 32;
 
             // send acknowlegment every 10 packets
@@ -184,7 +187,9 @@ void app(void)
             else
                 rf_receive(&rx, (uint8_t *)&pkt, &pkt_size, (uint8_t *)&ack, 0);
 
-            mode = pkt.armed;
+            mode = (pkt.armed == ARMED_KEY) ? QUAD_STATUS_ARMED : QUAD_STATUS_DISARMED;
+
+            HAL_GPIO_TogglePin(STAT1_GPIO_Port, STAT1_Pin);
 
             rf_dr = 0;
             rf_listen_it(&rx);
@@ -206,8 +211,8 @@ void app(void)
             madgwick_update(a_x, a_y, a_z, w_x, w_y, w_z, &state);
 
             // stream orientation over USB (for debugging)
-            float data[] = { state.q_state.q1, state.q_state.q2, state.q_state.q3, state.q_state.q4 };
-            CDC_Transmit_FS((uint8_t *)data, sizeof(data));
+            // float data[] = { state.q_state.q1, state.q_state.q2, state.q_state.q3, state.q_state.q4 };
+            // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
             if (mode == QUAD_STATUS_DISARMED)
             {
@@ -215,6 +220,12 @@ void app(void)
                 dshot_queue(&dshot, 0, 0, DSHOT_CH_2);
                 dshot_queue(&dshot, 0, 0, DSHOT_CH_3);
                 dshot_queue(&dshot, 0, 0, DSHOT_CH_4);
+
+                float data[] = { 0, 0, 0, 0 };
+                CDC_Transmit_FS((uint8_t *)data, sizeof(data));
+
+                HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
+
             }
             else if (mode == QUAD_STATUS_ARMED)
             {
@@ -235,9 +246,10 @@ void app(void)
                 if (q_err.q1 < 0)
                     sign = -1.0;
 
-                // MUST MATCH order in madgwick
-                float e_x = 2.0 * sign * q_err.q3;
-                float e_y = 2.0 * sign * q_err.q2;
+                // calculate 3 axis attitude error --> need more detail about this section
+                // body frame convention, not sensor frame
+                float e_x = 2.0 * sign * q_err.q2;
+                float e_y = 2.0 * sign * q_err.q3;
                 float e_z = 2.0 * sign * q_err.q4;
 
                 float w_x_des = e_x * k_att;
@@ -248,12 +260,40 @@ void app(void)
                 // clamp(w_x_des, max_rate, min_rate)
 
                 // compute ew
-                float e_w_x = w_x_des - state.q_gyro.q2;
+                float w_x_err = w_x_des - state.q_gyro.q2;
+                float w_y_err = w_y_des - state.q_gyro.q3;
+                float w_z_err = w_z_des - state.q_gyro.q4;
 
                 // run PID on ew
+                // put all operations into a matrix/vector operation to clean up
+                // leave ki = 0 for testing
+                // float tau_x = pkt.kp * w_x_err + pkt.ki * w_x_sum + pkt.kd * w_x_err - last_w_x;
+                // float tau_y = pkt.kp * w_y_err + pkt.ki * w_y_sum + pkt.kd * w_y_err - last_w_y;
+                // float tau_z = pkt.kp * w_z_err + pkt.ki * w_z_sum + pkt.kd * w_z_err - last_w_z;
+                float tau_x = pkt.kp * w_x_err;
+                float tau_y = pkt.kp * w_y_err;
+                float tau_z = pkt.kp * w_z_err;
                 // mix torque commands for each motor
+
+                // determine directions for tau_x, tau_y, tau_z
+                // tau_x requires left motors to match, right motors to match
+                // tau_y requires front motors to match, back motors to match
+                // tau_z requires diagonals to match
+                uint16_t motor_speed_fl = pkt.throttle + tau_x - tau_y + tau_z;
+                uint16_t motor_speed_fr = pkt.throttle - tau_x - tau_y - tau_z;
+                uint16_t motor_speed_bl = pkt.throttle + tau_x + tau_y - tau_z;
+                uint16_t motor_speed_br = pkt.throttle - tau_x + tau_y + tau_z;
                 // send
 
+                clamp(&motor_speed_fl, DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE);
+                clamp(&motor_speed_fr, DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE);
+                clamp(&motor_speed_bl, DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE);
+                clamp(&motor_speed_br, DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE);
+
+                uint16_t data[] = { motor_speed_fl, motor_speed_fr, motor_speed_bl, motor_speed_br };
+                CDC_Transmit_FS((uint8_t *)data, sizeof(data));
+
+                HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
 
             }
         }
@@ -279,4 +319,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     {
         bar_dr = 1;
     }
+}
+
+static void clamp(uint16_t * x, uint16_t min, uint16_t max)
+{
+    if (*x < min)
+        *x = min;
+    else if (*x > max)
+        *x = max;
 }
