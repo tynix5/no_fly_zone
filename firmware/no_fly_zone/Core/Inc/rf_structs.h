@@ -2,38 +2,40 @@
 #define RF_STRUCTS_H_
 
 #include <stdint.h>
+#include "quaternion.h"
 
-#define PACKET_SIZE                 sizeof(PacketParams)
-#define ACK_SIZE                    sizeof(AckParams)
+#define ARMED_KEY    0xAA
+#define DISARMED_KEY 0x55
 
-#define PACKET_KEY                  0xAA
-#define ACK_KEY                     0x55
+typedef enum
+{
+    QUAD_STATUS_DISARMED = 0,
+    QUAD_STATUS_ARMED
+
+} quad_arm_status_t;
 
 // packet sent from remote to quadcopter
-typedef struct {
+typedef struct
+{
 
-    // Quaternion quat_des;
-    // float yaw_rate;
-    // uint8_t armed;
-
-    uint8_t pitch;
-    uint8_t throttle;
-    uint8_t yaw;
-    uint8_t roll;
+    uint16_t throttle;
+    quaternion_t * q_des;
+    float yaw_rate;
     float kp;
     float ki;
     float kd;
-    uint8_t key;
 
-} PacketParams;
+    quad_arm_status_t armed;
+
+} rf_packet_params_t;
 
 // packet sent from quadcopter to remote (as acknowledgement)
-typedef struct {
+typedef struct
+{
 
-    uint8_t key;
+    quad_arm_status_t armed;
     uint8_t rx_batt_lvl;
 
-} AckParams;
-
+} rf_ack_params_t;
 
 #endif

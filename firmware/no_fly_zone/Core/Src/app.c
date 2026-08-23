@@ -12,13 +12,14 @@
 #include "nrf24.h"
 #include "rf_structs.h"
 #include "quaternion.h"
+#include "madgwick.h"
 
-#define BETA                        0.2f
-#define MADGWICK_GAIN               BETA
-#define DELTA_T                     1 / 1660.0          // replace with actual variable
+#define BETA          0.2f
+#define MADGWICK_GAIN BETA
+#define DELTA_T       1 / 1660.0 // replace with actual variable
 
-#define RF_TX_ADDR                  0xC2C2C2C2
-#define RF_RX_ADDR                  0xE7E7E7E7
+#define RF_TX_ADDR    0xC2C2C2C2
+#define RF_RX_ADDR    0xE7E7E7E7
 
 nrf_handle_t rx = {
 
@@ -37,19 +38,11 @@ nrf_handle_t rx = {
     .payload_type = NRF_PAYLOAD_DYNAMIC,
     .ack = FEAT_ENABLE,
 
-    .nrf_irqs_t = {
-        .rx_dr = FEAT_ENABLE,
-        .tx_ds = FEAT_DISABLE,
-        .max_rt = FEAT_DISABLE
-    }
+    .nrf_irqs_t = { 
+        .rx_dr = FEAT_ENABLE, 
+        .tx_ds = FEAT_DISABLE, 
+        .max_rt = FEAT_DISABLE, }
 };
-
-uint8_t rf_dr = 0;          // data received from nRF24L01
-
-uint8_t mag_dr = 0;
-uint8_t gyro_dr = 0, accel_dr = 0;
-uint8_t bar_dr = 0;
-
 
 lps25_handle_t bar = {
 
@@ -60,11 +53,10 @@ lps25_handle_t bar = {
     .odr = BAR_ODR_1HZ,
     .it = BAR_INT_DRDY,
 
-    .fifo_handle_t = {
-        .mode = BAR_FIFO_BYPASS,
-        .thresh = 31,
-        .mov_smp = BAR_MOV_AVG_SMP_NONE
-    }
+    .fifo_handle_t = {  
+        .mode = BAR_FIFO_BYPASS, 
+        .thresh = 31, 
+        .mov_smp = BAR_MOV_AVG_SMP_NONE, }
 };
 
 lsm6_handle_t imu = {
@@ -73,37 +65,38 @@ lsm6_handle_t imu = {
     .cs = IMU_CS_Pin,
     .delay_ms = HAL_Delay,
 
-    .gyro_handle_t = {
-        .odr = IMU_ODR_G_1_66KHZ,
-        .fs = IMU_FS_G_1000DPS,
-        .filt = IMU_HPF_EN,
-        .cutoff = IMU_HP_G_16MILHZ
-    },
+    .gyro_handle_t = {  
+        .odr = IMU_ODR_G_1_66KHZ, 
+        .fs = IMU_FS_G_1000DPS, 
+        .filt = IMU_HPF_EN, 
+        .cutoff = IMU_HP_G_16MILHZ, },
 
-    .accel_handle_t = {
-        .odr = IMU_ODR_XL_1_66KHZ,
-        .fs = IMU_FS_XL_8G,
-        .filt = IMU_LPF_EN
-    },
+    .accel_handle_t = { 
+        .odr = IMU_ODR_XL_1_66KHZ, 
+        .fs = IMU_FS_XL_8G, 
+        .filt = IMU_LPF_EN, },
 
-    .fifo_handle_t = {
-        .mode = IMU_FIFO_BYPASS,
-        .odr = IMU_ODR_FIFO_DISABLE
-    },
+    .fifo_handle_t = {  
+        .mode = IMU_FIFO_BYPASS, 
+        .odr = IMU_ODR_FIFO_DISABLE, },
 
-    .int_handle_t = {
-        .int1 = IMU_INT1_DRDY_G,
-        .int2 = IMU_INT2_DRDY_XL
-    }
+    .int_handle_t = {   
+        .int1 = IMU_INT1_DRDY_G, 
+        .int2 = IMU_INT2_DRDY_XL, }
 };
 
 dshot_handle_t dshot = {
-    
-    .bitrate = DSHOT_BR_300_KBPS,
-    .frequency = DSHOT_FREQ_4_KHZ,
-    .n = 4
+
+    .bitrate = DSHOT_BR_300_KBPS, 
+    .frequency = DSHOT_FREQ_4_KHZ, 
+    .n = 4,
 };
 
+uint8_t rf_dr = 0; // data received from nRF24L01
+
+uint8_t mag_dr = 0;
+uint8_t gyro_dr = 0, accel_dr = 0;
+uint8_t bar_dr = 0;
 
 void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi2, SPI_HandleTypeDef * hspi3, TIM_HandleTypeDef * htim2, TIM_HandleTypeDef * htim5)
 {
@@ -116,21 +109,21 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi2, SPI_HandleTy
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);
-    
+
     rx.hspi = hspi3;
     if (rf_init(&rx) == RF_SUCCESS)
         HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
-    
+
     bar.hspi = hspi2;
     if (bar_init(&bar) == STATUS_OK)
         HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
-    
+
     imu.hspi = hspi2;
     if (imu_init(&imu) == STATUS_OK)
         HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_SET);
-    
+
     HAL_Delay(1000);
-        
+
     HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_RESET);
@@ -143,227 +136,127 @@ void app_init(ADC_HandleTypeDef * hadc1, SPI_HandleTypeDef * hspi2, SPI_HandleTy
     dshot.stream[3].channel = TIM_CHANNEL_4;
     dshot.stream[0].freq = dshot.stream[1].freq = dshot.stream[2].freq = dshot.stream[3].freq = 84000000;
 
-
     dshot_init(&dshot);
 }
 
 void app(void)
 {
-    uint8_t count = 0;
+    uint32_t pkt_cnt = 0;
+    uint32_t last_pkt_tick = 0;
 
-    AckParams ack = {.key = ACK_KEY, .rx_batt_lvl = 84};
-    PacketParams packet;
+    madgwick_state_t state = {
+        .beta = BETA,
+        .dt = DELTA_T,
+    };
 
-    uint8_t packet_len;
+    rf_packet_params_t pkt;
+    rf_ack_params_t ack;
 
-    uint8_t send = 0;
-    
-    float a_x, a_y, a_z, w_x, w_y, w_z;
-    float hpa, temp_bar;
+    motor_speeds_t motor_speeds;
 
-    
-    quaternion_t q_accel, q_gyro;
-    quaternion_t q_gyro_dot;
-    quaternion_t q_state, q_state_prev, q_state_dot;
+    const float k_att = 10.0;
 
-    // initial state
-    q_state_prev.q1 = 1.0;
-    q_state_prev.q2 = 0;
-    q_state_prev.q3 = 0;
-    q_state_prev.q4 = 0;
+    quad_arm_status_t mode = QUAD_STATUS_DISARMED;
+    dshot_channel_t motor_ch[4] = { DSHOT_CH_1, DSHOT_CH_2, DSHOT_CH_3, DSHOT_CH_4 };
 
-
+    madgwick_init(&state);
     rf_listen_it(&rx);
-    
+
     while (1)
     {
 
         /* Create timer to sample VBAT ADC every second or so */
-        // drone is disarmed until user pulls down on joystick and presses encoder switch?
-        // compute target pitch, roll, yaw (rate)
-        // 
-        
+
         if (rf_dr)
         {
-            count++;
-            if (count == 10)
-            {
-                // send ack
-                count = 0;
-                rf_receive(&rx, (uint8_t *) &packet, &packet_len, (uint8_t *) &ack, ACK_SIZE);
-            }
+            pkt_cnt++;
+            last_pkt_tick = HAL_GetTick();
+
+            uint8_t pkt_size;
+
+            // build ack packet in here
+            ack.armed = mode;
+            ack.rx_batt_lvl = 32;
+
+            // send acknowlegment every 10 packets
+            if (pkt_cnt % 10 == 0)
+                rf_receive(&rx, (uint8_t *)&pkt, &pkt_size, (uint8_t *)&ack, sizeof(rf_ack_params_t));
             else
-            {
-                // send no ack
-                rf_receive(&rx, (uint8_t *) &packet, &packet_len, (uint8_t *) &ack, 0);
-            }
-            if (packet_len == PACKET_SIZE && packet.key == PACKET_KEY && packet.throttle < 100)
-                HAL_GPIO_TogglePin(STAT3_GPIO_Port, STAT3_Pin);
+                rf_receive(&rx, (uint8_t *)&pkt, &pkt_size, (uint8_t *)&ack, 0);
+
+            mode = pkt.armed;
 
             rf_dr = 0;
             rf_listen_it(&rx);
-        } 
-    
-        /*
-        if (gyro_dr)
-        {
-            q_gyro.q1 = 0;
-            imu_read_gyro_degps(&imu, &w_x, &w_y, &w_z);    
-            // imu_read_gyro_degps(&imu, &q_gyro.q2, &q_gyro.q3, &q_gyro.q4);    
-            send = 1;
-            gyro_dr = 0;
-            HAL_GPIO_TogglePin(STAT1_GPIO_Port, STAT1_Pin);
         }
-        if (accel_dr)
-        {
-            q_accel.q1 = 0;
-            imu_read_accel_mps2(&imu, &a_x, &a_y, &a_z); 
-            // imu_read_accel_mps2(&imu, &q_accel.q2, &q_accel.q3, &q_accel.q4); 
-            send = 1;
-            accel_dr = 0;
-            HAL_GPIO_TogglePin(STAT2_GPIO_Port, STAT2_Pin);
-        }  
-        if (bar_dr)  
-        {
-            bar_read_press_hpa(&bar, &hpa);
-            bar_read_temp(&bar, &temp_bar);
-            send = 1;
-            bar_dr = 0;
-            HAL_GPIO_TogglePin(STAT3_GPIO_Port, STAT3_Pin);
-        }
-        if (send)
-        {
-            float data[] = {a_x, a_y, a_z, w_x, w_y, w_z, hpa, temp_bar};
-            CDC_Transmit_FS((uint8_t *) data, sizeof(data));
-            send = 0;
-        }
-        */
 
-        // yaw stick controls desired yaw rate not absolute angle
-        // make sure axis are aligned with madgwick filter
-        // body frame i am using
-        /*
-                            ^ X
-                            |
-                            |______> Y
-                            Z (down)
-        */
-    //    https://ahrs.readthedocs.io/en/latest/filters/madgwick.html#filter-gain
+        // if quadcopter has lost or never had connection to remote for >1s, disarm quadcopter
+        if (HAL_GetTick() - last_pkt_tick > 1000)
+            mode = QUAD_STATUS_DISARMED;
 
         if (accel_dr)
         {
-            HAL_GPIO_TogglePin(STAT2_GPIO_Port, STAT2_Pin);
-
             accel_dr = 0;
 
-            float meas_x, meas_y, meas_z;
-            q_gyro.q1 = 0;
-            imu_read_gyro_radps(&imu, &meas_x, &meas_y, &meas_z);  
-            // align sensor coordinates to body frame coordinates
-            // check these rotations line up correctly sign-wise
-            q_gyro.q2 = meas_y;
-            q_gyro.q3 = meas_x;
-            q_gyro.q4 = meas_z;  
-            
-            q_accel.q1 = 0;
-            imu_read_accel_mps2(&imu, &meas_x, &meas_y, &meas_z); 
-            // sensor coordinates --> body frame
-            // check these rotations line up correctly sign-wise
-            q_accel.q2 = -meas_y;
-            q_accel.q3 = -meas_x;
-            q_accel.q4 = meas_z;  
-            // normalize acceleration
-            quat_normalize(&q_accel);
-            
-            
-            // compute f_g(q, s_a)
-            // this is the error function: it calculates difference between predicted and measured state
-            float fg[3];
-            fg[0] = 2.0 * (q_state_prev.q2 * q_state_prev.q4 - q_state_prev.q1 * q_state_prev.q3) - q_accel.q2;            
-            fg[1] = 2.0 * (q_state_prev.q1 * q_state_prev.q2 + q_state_prev.q3 * q_state_prev.q4) - q_accel.q3;            
-            fg[2] = 2.0 * (0.5 - q_state_prev.q2 * q_state_prev.q2 - q_state_prev.q3 * q_state_prev.q3) - q_accel.q4;
-            
-            // create Jacobian J_g(q)
-            // if quaternion slightly changes, how does error change?
-            // float Jg[3 * 4] = {-2.0 * q_state_prev.q3, 2.0 * q_state_prev.q4, -2.0 * q_state_prev.q1, 2.0 * q_state_prev.q2,
-            //                     2.0 * q_state_prev.q2, 2.0 * q_state_prev.q1, 2.0 * q_state_prev.q4, 2 * q_state_prev.q3,
-            //                     0.0, -4.0 * q_state_prev.q2, -4.0 * q_state_prev.q3, 0.0};
-            
-            float JgT[4 * 3] = {-2.0 * q_state_prev.q3, 2.0 * q_state_prev.q2, 0.0,
-                                2.0 * q_state_prev.q4, 2.0 * q_state_prev.q1, -4.0 * q_state_prev.q2,
-                                -2.0 * q_state_prev.q1, 2.0 * q_state_prev.q4, -4.0 * q_state_prev.q3,
-                                2.0 * q_state_prev.q2, 2.0 * q_state_prev.q3, 0.0};
-                
-            // compute quaternion derivative for gyro
-            // q_gyro_dot = 1/2 * q_state_prev * q_gyro 
-            quat_mult(q_state_prev, q_gyro, &q_gyro_dot);
-            quat_mult_scalar(&q_gyro_dot, 0.5);
-            
-            /*
-            arm_matrix_instance_f32 Jg_mat = {
-                .numRows = 3,
-                .numCols = 4,
-                .pData = Jg
-                };
-                */
-                
-            arm_matrix_instance_f32 JgT_mat = {
-                .numRows = 4,
-                .numCols = 3,
-                .pData = JgT
-            };
-            
-            arm_matrix_instance_f32 fg_mat = {
-                .numRows = 3,
-                .numCols = 1,
-                .pData = fg
-            };
-            
-            float gradient[4];
-            arm_matrix_instance_f32 gradient_mat = {
-                .numRows = 4,
-                .numCols = 1,
-                .pData = gradient
-            };
-            
-            
-            
-            // arm_mat_trans_f32(&Jg_mat, &JgT_mat);             // replace with hard coded transpose matrix
-            
-            // compute gradient = (J^T)f
-            // linear estimate of how uncertainty in inputs propagates into uncertainty in output
-            arm_mat_mult_f32(&JgT_mat, &fg_mat, &gradient_mat);
-            
-            quaternion_t q_grad = {.q1 = gradient[0], .q2 = gradient[1], .q3 = gradient[2], .q4 = gradient[3]};
-            quat_normalize(&q_grad);
-            quat_mult_scalar(&q_grad, BETA);
-            quat_sub(q_gyro_dot, q_grad, &q_state_dot);
-            quat_mult_scalar(&q_state_dot, DELTA_T);
-            quat_add(q_state_prev, q_state_dot, &q_state);
-            quat_normalize(&q_state);
-            
-            q_state_prev.q1 = q_state.q1;
-            q_state_prev.q2 = q_state.q2;
-            q_state_prev.q3 = q_state.q3;
-            q_state_prev.q4 = q_state.q4;
-            
-            // float pitch, roll, yaw;
-            // quat_to_euler(q_state, &pitch, &roll, &yaw);        // verify pitch, roll, yaw estimates
-            // pitch *= 180.0 / PI;
-            // roll *= 180.0 / PI;
-            // yaw *= 180.0 / PI;
-            // yaw = 0.0f;
+            float a_x, a_y, a_z, w_x, w_y, w_z;
 
-            // char data[100];
-            // uint8_t len = sprintf(data, "%d,%d,%d\r\n", (int) pitch, (int) roll, (int) yaw);
-            
-            float data[] = {q_state.q1, q_state.q2, q_state.q3, q_state.q4};
-            // float data[] = {q_gyro.q2, q_gyro.q3, q_gyro.q4, 0.0f};
-            CDC_Transmit_FS((uint8_t *) data, sizeof(data));
-            // uint8_t status = CDC_Transmit_FS((uint8_t *) data, len);
+            // update orientation estimation
+            imu_read_gyro_radps(&imu, &w_x, &w_y, &w_z);
+            imu_read_accel_mps2(&imu, &a_x, &a_y, &a_z);
+            madgwick_update(a_x, a_y, a_z, w_x, w_y, w_z, &state);
 
+            // stream orientation over USB (for debugging)
+            float data[] = { state.q_state.q1, state.q_state.q2, state.q_state.q3, state.q_state.q4 };
+            CDC_Transmit_FS((uint8_t *)data, sizeof(data));
+
+            if (mode == QUAD_STATUS_DISARMED)
+            {
+                dshot_queue(&dshot, 0, 0, DSHOT_CH_1);
+                dshot_queue(&dshot, 0, 0, DSHOT_CH_2);
+                dshot_queue(&dshot, 0, 0, DSHOT_CH_3);
+                dshot_queue(&dshot, 0, 0, DSHOT_CH_4);
+            }
+            else if (mode == QUAD_STATUS_ARMED)
+            {
+                // calculate quaternion error
+                // convert quaternion error to a rate error
+                // convert rate error to torque/speed commands
+                // mix torque/speed commands
+                // send to motors
+
+                // compute rotation needed to move from current orientation to desired orientation (AKA error)
+                quaternion_t q_state_conj, q_err;
+                quat_copy(state.q_state, &q_state_conj);
+                quat_conjugate(&q_state_conj);
+                quat_mult(q_state_conj, pkt.q_des, &q_err);
+
+                // convert error to rate error
+                float sign = 1.0;
+                if (q_err.q1 < 0)
+                    sign = -1.0;
+
+                // MUST MATCH order in madgwick
+                float e_x = 2.0 * sign * q_err.q3;
+                float e_y = 2.0 * sign * q_err.q2;
+                float e_z = 2.0 * sign * q_err.q4;
+
+                float w_x_des = e_x * k_att;
+                float w_y_des = e_y * k_att;
+                float w_z_des = e_z * k_att;
+
+                // clamp rates to certain range
+                // clamp(w_x_des, max_rate, min_rate)
+
+                // compute ew
+                float e_w_x = w_x_des - state.q_gyro.q2;
+
+                // run PID on ew
+                // mix torque commands for each motor
+                // send
+
+
+            }
         }
-                    
     }
 }
 

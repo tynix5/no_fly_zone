@@ -61,6 +61,7 @@ Core/Src/sysmem.c \
 Core/Src/syscalls.c \
 Core/Src/app.c \
 Core/Src/dshot.c \
+Core/Src/madgwick.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_spi.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c \
