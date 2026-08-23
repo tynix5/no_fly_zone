@@ -13,13 +13,6 @@ typedef struct
 
 } joystick_t;
 
-typedef enum
-{
-    QUAD_STATUS_DISARMED = 0,
-    QUAD_STATUS_ARMED
-
-} quad_arm_status_t;
-
 void app_init(ADC_HandleTypeDef * hadc,
               DMA_HandleTypeDef * hdma,
               I2C_HandleTypeDef * hi2c,

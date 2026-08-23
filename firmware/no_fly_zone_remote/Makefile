@@ -157,7 +157,7 @@ C_INCLUDES =  \
 
 C_INCLUDES += -I$(LIB_DIR)/nrf24l01
 C_INCLUDES += -I$(LIB_DIR)/ssd1306
-C_INCLUDES += -I$(LIB_DIR)/error_types
+C_INCLUDES += -I$(LIB_DIR)/generic_types
 C_INCLUDES += -I$(LIB_DIR)/quaternion
 C_INCLUDES += -I$(LIB_DIR)/encoder
 

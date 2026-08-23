@@ -171,7 +171,4 @@ void oled_show_pid(ssd1306_handle_t * holed, float kp, float ki, float kd, oled_
     ssd1306_write_str(holed, 52, 20, kp_buff);
     ssd1306_write_str(holed, 52, 30, ki_buff);
     ssd1306_write_str(holed, 52, 40, kd_buff);
-
-    // char * k_buff[6]; // 4 for numbers %%.%%, one for ".", one for null-termination
-    // snprintf(k_buff, sizeof(k_buff), "%.4f", )
 }

@@ -12,33 +12,33 @@
 #include <math.h>
 #include <string.h>
 
-#define RF_TX_ADDR       0xE7E7E7E7
-#define RF_RX_ADDR       0xE7E7E7E7
+#define RF_TX_ADDR         0xE7E7E7E7
+#define RF_RX_ADDR         0xE7E7E7E7
 
-#define NUM_ADC_CONV     5
-#define ADC_SAMP_RATE    25 // Hz
-#define ADC_SAMP_DT      1 / ADC_SAMP_RATE
+#define N_ADC_SAMPLES      5
+#define ADC_SAMP_RATE      25 // Hz
+#define ADC_SAMP_DT        (float)(1.0 / ADC_SAMP_RATE)
 
-#define CELL_COUNT       1  // 1S LiPo
-#define CELL_MAX_V       4.2
-#define CELL_MIN_V       3.75
-#define BAT_MAX_V        CELL_COUNT * CELL_MAX_V
-#define BAT_MIN_V        CELL_COUNT * CELL_MIN_V
+#define CELL_COUNT         1  // 1S LiPo
+#define CELL_MAX_V         4.2
+#define CELL_MIN_V         3.75
+#define BAT_MAX_V          CELL_COUNT * CELL_MAX_V
+#define BAT_MIN_V          CELL_COUNT * CELL_MIN_V
 
-#define MAX_PITCH_DEG    35
-#define MIN_PITCH_DEG    -35
-#define MAX_ROLL_DEG     35
-#define MIN_ROLL_DEG     -35
-#define MAX_YAW_RATE_DEG 360
-#define MIN_YAW_RATE_DEG -360
+#define MAX_PITCH_RATE_DEG 360
+#define MIN_PITCH_RATE_DEG -360
+#define MAX_ROLL_RATE_DEG  360
+#define MIN_ROLL_RATE_DEG  -360
+#define MAX_YAW_RATE_DEG   360
+#define MIN_YAW_RATE_DEG   -360
 
-#define ENC_UPDATE_T     100
+#define ENC_UPDATE_T       100
 
-#define OLED_RES_X       128
-#define OLED_RES_Y       64
-#define OLED_PAGES       (OLED_RES_Y / 8)
+#define OLED_RES_X         128
+#define OLED_RES_Y         64
+#define OLED_PAGES         (OLED_RES_Y / 8)
 
-uint16_t samples[NUM_ADC_CONV];
+uint16_t samples[N_ADC_SAMPLES];
 
 // reference for buffer sizes found in ssd1306.h
 uint8_t oled_buff[OLED_RES_X * OLED_PAGES];
@@ -51,7 +51,7 @@ volatile uint8_t adc_dr = 0;
 float kp = 0, ki = 0, kd = 0;
 
 // nRF24L01 parameters, should match receiver params
-RadioParams tx = {
+nrf_handle_t tx = {
 
     .ce_gpio = RF_CE_GPIO_Port,
     .ce_pin = RF_CE_Pin,
@@ -68,7 +68,7 @@ RadioParams tx = {
     .payload_type = NRF_PAYLOAD_DYNAMIC,
     .ack = FEAT_ENABLE,
 
-    .RadioIrqs = {
+    .nrf_irqs_t = {
         .rx_dr = FEAT_DISABLE,
         .tx_ds = FEAT_DISABLE,
         .max_rt = FEAT_DISABLE,
@@ -83,8 +83,6 @@ ssd1306_handle_t oled = {
     .res_y = OLED_RES_Y,
 };
 
-// maybe add encoder library with speed functions?
-// then could remove all unnecessary user variables
 encoder_handle_t enc = {
     .sw_gpio = ENC_SW_GPIO_Port,
     .sw_pin = ENC_SW_Pin,
@@ -94,7 +92,10 @@ encoder_handle_t enc = {
 
 void encoder_callback(encoder_handle_t * henc, encoder_event_t event);
 void encoder_sw_callback(encoder_handle_t * henc, encoder_event_t event);
-static void pos_to_euler(joystick_t * joystick, float * pitch, float * roll, float * yaw);
+static void
+shape_input(uint16_t x, uint16_t x_min, uint16_t x_max, uint16_t x_mid, float deadzone, float x_shaped_min, float x_shaped_max, float * x_shaped);
+static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * q_des);
+static void pos_to_euler_rates(joystick_t * joystick, float * pitch_rate, float * roll_rate, float * yaw_rate);
 static float map(float x, float in_min, float in_max, float out_min,
                  float out_max); // convert from [in_min, in_max] to [out_min, out_max]
 static uint8_t compute_batt(uint16_t batt_lvl_adc);
@@ -121,7 +122,7 @@ void app_init(ADC_HandleTypeDef * hadc,
     encoder_register_sw_callback(&enc, encoder_sw_callback);
 
     // enable ADC with DMA transfers
-    HAL_ADC_Start_DMA(hadc, (uint32_t *)samples, NUM_ADC_CONV);
+    HAL_ADC_Start_DMA(hadc, (uint32_t *)samples, N_ADC_SAMPLES);
 
     // start ADC conversions
     HAL_TIM_Base_Start(htim); // 25Hz
@@ -145,6 +146,13 @@ void app(void)
 
     joystick_t joysticks;
 
+    quaternion_t q_des = {
+        .q1 = 1,
+        .q2 = 0,
+        .q3 = 0,
+        .q4 = 0,
+    };
+
     quad_arm_status_t mode = QUAD_STATUS_DISARMED;
     uint32_t last_mode_change = 0;
 
@@ -154,14 +162,13 @@ void app(void)
 
         // flight mode
         // 1. read joysticks
-        // 2. convert joysticks to euler angles (yaw rate not yaw)
-        // 3. convert yaw rate * dt (of radio) = absolute yaw
-        // 4. convert to quaternions
-        // 5. send over radio
-        // 6. update oled --> figure out where to place update function
+        // 2. convert joysticks to desired angular rates
+        // 3. convert rates to desired quaternion
+        // 4. send over radio
+        // 5. update oled --> figure out where to place update function
 
         // tune mode
-        // must be disarmed?
+        // must be disarmed
         // 1. read encoder
         // 2. control menu
         // 3. tune PID values
@@ -173,20 +180,14 @@ void app(void)
         if (sw_state && page != PAGE_3 && joysticks.throttle > 3000 && HAL_GetTick() - last_mode_change > 500)
         {
             mode = !mode;
-            if (mode == QUAD_STATUS_ARMED)
-                curr_tune = ACTIVE_TUNE_NONE;
+            curr_tune = ACTIVE_TUNE_NONE;
             last_mode_change = HAL_GetTick();
         }
 
         if (adc_dr)
         {
-            // move joystick conversions
             // convert joysticks to euler angles and then quaternions
             memcpy((uint16_t *)&joysticks, (uint16_t *)samples, sizeof(joysticks));
-
-            // debugging
-            // CDC_Transmit_FS((uint8_t *)&joysticks, sizeof(joysticks));
-            /////////////
 
             // tune mode
             if (mode == QUAD_STATUS_DISARMED && page == PAGE_3)
@@ -194,28 +195,37 @@ void app(void)
                 tune(&joysticks, &kp, &ki, &kd, &last_tune_update, &curr_tune);
             }
 
-            float pitch_deg, roll_deg, yaw_rate_deg;
-            float yaw_deg;
-            // set euler angles and pitch rate
-            pos_to_euler(&joysticks, &pitch_deg, &roll_deg, &yaw_rate_deg);
+            // map joystick positions to euler angle rates
+            float pitch_rate_deg, roll_rate_deg, yaw_rate_deg;
+            pos_to_euler_rates(&joysticks, &pitch_rate_deg, &roll_rate_deg, &yaw_rate_deg);
 
-            yaw_deg = yaw_rate_deg * ADC_SAMP_DT;
+            // convert to radians
+            float pitch_rate_rad = pitch_rate_deg * M_PI / 180.0;
+            float roll_rate_rad = roll_rate_deg * M_PI / 180.0;
+            float yaw_rate_rad = yaw_rate_deg * M_PI / 180.0;
 
-            float pitch_rad = pitch_deg * M_PI / 180.0;
-            float roll_rad = roll_deg * M_PI / 180.0;
-            float yaw_rad = yaw_deg * M_PI / 180.0;
-
-            // euler_to_quat
-            Quaternion q_pos;
-            euler_to_quat(pitch_rad, roll_rad, yaw_rad, &q_pos);
-            CDC_Transmit_FS((uint8_t *)&q_pos, sizeof(q_pos));
+            // convert angular rates to desired quaternion
+            // this is an acrobatic mode of sorts
+            // if user wants quadcopter to return to level position after releasing sticks, do euler_to_quat()
+            // must match those in madgwick filter for quadcopter
+            euler_rates_to_quat(roll_rate_rad, pitch_rate_rad, yaw_rate_rad, &q_des);
+            CDC_Transmit_FS((uint8_t *)&q_des, sizeof(q_des));
 
             // adc level is between 2.1V and 1.875V
+            // make a library for this???
             remote_batt_lvl = compute_batt(samples[4]);
 
-            PacketParams pkt = {
+            // if throttle < halfway, throttle = 0
+            // otherwise throttle = throttle - 2048
+            // add a condition_joysticks() function to convert ranges
+            // handle jerking, accleration, etc
+
+            // instead of doing joysticks --> angles
+            // do joysticks--> angle rates, then integrate and convert those into quaternion
+
+            rf_packet_params_t pkt = {
                 .throttle = joysticks.throttle,
-                .q_des = &q_pos,
+                .q_des = &q_des,
                 .yaw_rate = yaw_rate_deg,
                 .kp = kp,
                 .ki = ki,
@@ -223,7 +233,7 @@ void app(void)
                 .armed = mode,
             };
 
-            AckParams ack;
+            rf_ack_params_t ack;
             uint8_t ack_len;
 
             if (mode == QUAD_STATUS_ARMED)
@@ -231,11 +241,10 @@ void app(void)
             else
                 pkt.armed = DISARMED_KEY;
 
-            rf_send(&tx, (uint8_t *)&pkt, sizeof(PacketParams), (uint8_t *)&ack, &ack_len);
+            rf_send(&tx, (uint8_t *)&pkt, sizeof(rf_packet_params_t), (uint8_t *)&ack, &ack_len);
 
-            if (ack_len == sizeof(AckParams))
+            if (ack_len == sizeof(rf_ack_params_t))
             {
-                HAL_GPIO_TogglePin(USER_LED_GPIO_Port, USER_LED_Pin);
                 quad_batt_lvl = ack.rx_batt_lvl;
             }
 
@@ -253,7 +262,7 @@ void app(void)
             .kp = kp,
             .ki = ki,
             .kd = kd,
-            .active_tune = curr_tune,
+            .active_tune = curr_tune, // change to tune_parameter
         };
 
         oled_update(&oled, &oled_info);
@@ -299,12 +308,76 @@ void encoder_sw_callback(encoder_handle_t * henc, encoder_event_t event)
     }
 }
 
-static void pos_to_euler(joystick_t * joystick, float * pitch, float * roll, float * yaw_rate)
+static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * q_des)
 {
-    // convert joystick positions to euler angles
-    *pitch = map(joystick->pitch, 0, 4096, MAX_PITCH_DEG, MIN_PITCH_DEG);
-    *roll = map(joystick->roll, 0, 4096, MAX_ROLL_DEG, MIN_ROLL_DEG);
-    *yaw_rate = map(joystick->yaw, 0, 4096, MAX_YAW_RATE_DEG, MIN_YAW_RATE_DEG);
+    // place gyro angular rates (radians per second) into quaternion
+    quaternion_t q_rates = {
+        .q1 = 0,
+        .q2 = w_x,
+        .q3 = w_y,
+        .q4 = w_z,
+    };
+
+    quaternion_t q_des_dot;
+
+    // integrate
+    // q_des_dot = 0.5 * q_des * [0, w_x, w_y, w_z]
+    quat_mult(*q_des, q_rates, &q_des_dot);
+    quat_mult_scalar(&q_des_dot, 0.5);
+
+    // q_des = q_des + q_des_dot * dt
+    quat_mult_scalar(&q_des_dot, ADC_SAMP_DT);
+    quat_add(*q_des, q_des_dot, q_des);
+
+    // normalize
+    quat_normalize(q_des);
+}
+
+static void
+shape_input(uint16_t x, uint16_t x_min, uint16_t x_max, uint16_t x_mid, float deadzone, float x_shaped_min, float x_shaped_max, float * x_shaped)
+{
+    // transform input x in range [x_min, x_max] to [x_shaped_min, x_shaped_max] in a quadratic fashion
+    // small deviations from center of range result in smaller outputs, larger deviations result in larger swings
+
+    // map input to [-1, 1] range
+    if (x > x_mid)
+        *x_shaped = (float)(x - x_mid) / (float)(x_max - x_mid); // maps to [0, 1]
+    else
+        *x_shaped = (float)(x - x_mid) / (float)(x_mid - x_min); // maps to [-1, 0]
+
+    // fix discontinuity at deadzone boundaries
+    if (fabsf(*x_shaped) < deadzone)
+        *x_shaped = 0;
+    else
+        *x_shaped = (fabsf(*x_shaped) - deadzone) / (1.0 - deadzone);
+
+    // scale output quadratically with input
+    if (x > x_mid)
+        *x_shaped = powf(*x_shaped, 2.0) * x_shaped_max;
+    else
+        *x_shaped = powf(*x_shaped, 2.0) * x_shaped_min;
+}
+
+static void pos_to_euler_rates(joystick_t * joystick, float * pitch_rate, float * roll_rate, float * yaw_rate)
+{
+
+    // calibrate()
+
+    const uint16_t pitch_min = 400;
+    const uint16_t roll_min = 400;
+    const uint16_t yaw_min = 400;
+    const uint16_t pitch_max = 3600;
+    const uint16_t roll_max = 3600;
+    const uint16_t yaw_max = 3600;
+    const uint16_t pitch_center = 1900;
+    const uint16_t roll_center = 1900;
+    const uint16_t yaw_center = 1900;
+
+    const float deadzone = 0.05; // 5% deadzone
+
+    shape_input(joystick->pitch, pitch_min, pitch_max, pitch_center, deadzone, MIN_PITCH_RATE_DEG, MAX_PITCH_RATE_DEG, pitch_rate);
+    shape_input(joystick->roll, roll_min, roll_max, roll_center, deadzone, MIN_ROLL_RATE_DEG, MAX_ROLL_RATE_DEG, roll_rate);
+    shape_input(joystick->yaw, yaw_min, yaw_max, yaw_center, deadzone, MIN_YAW_RATE_DEG, MAX_YAW_RATE_DEG, yaw_rate);
 }
 
 static float map(float x, float in_min, float in_max, float out_min, float out_max)

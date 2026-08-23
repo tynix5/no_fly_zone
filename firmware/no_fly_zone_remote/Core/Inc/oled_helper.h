@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "ssd1306.h"
 #include "app.h"
+#include "rf_structs.h"
 
 typedef enum : int32_t
 {
