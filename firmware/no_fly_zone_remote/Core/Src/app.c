@@ -92,6 +92,7 @@ encoder_handle_t enc = {
 
 void encoder_callback(encoder_handle_t * henc, encoder_event_t event);
 void encoder_sw_callback(encoder_handle_t * henc, encoder_event_t event);
+static void condition_throttle(uint16_t throttle, uint16_t * shaped_throttle);
 static void
 shape_input(uint16_t x, uint16_t x_min, uint16_t x_max, uint16_t x_mid, float deadzone, float x_shaped_min, float x_shaped_max, float * x_shaped);
 static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * q_des);
@@ -179,7 +180,11 @@ void app(void)
         // move button press funciton to encoder library
         if (sw_state && page != PAGE_3 && joysticks.throttle > 3000 && HAL_GetTick() - last_mode_change > 500)
         {
-            mode = !mode;
+            if (mode == QUAD_STATUS_ARMED)
+                mode = QUAD_STATUS_DISARMED;
+            else if (mode == QUAD_STATUS_DISARMED)
+                mode = QUAD_STATUS_ARMED;
+
             curr_tune = ACTIVE_TUNE_NONE;
             last_mode_change = HAL_GetTick();
         }
@@ -192,6 +197,7 @@ void app(void)
             // tune mode
             if (mode == QUAD_STATUS_DISARMED && page == PAGE_3)
             {
+                // problem with tuning control
                 tune(&joysticks, &kp, &ki, &kd, &last_tune_update, &curr_tune);
             }
 
@@ -209,37 +215,43 @@ void app(void)
             // if user wants quadcopter to return to level position after releasing sticks, do euler_to_quat()
             // must match those in madgwick filter for quadcopter
             euler_rates_to_quat(roll_rate_rad, pitch_rate_rad, yaw_rate_rad, &q_des);
-            CDC_Transmit_FS((uint8_t *)&q_des, sizeof(q_des));
+            // CDC_Transmit_FS((uint8_t *)&q_des, sizeof(q_des));
 
             // adc level is between 2.1V and 1.875V
-            // make a library for this???
+            // make a library for this??? battery monitoring library --> bml
+            // include method for callbacks that will shut down system if battery too low
             remote_batt_lvl = compute_batt(samples[4]);
 
             // if throttle < halfway, throttle = 0
             // otherwise throttle = throttle - 2048
             // add a condition_joysticks() function to convert ranges
             // handle jerking, accleration, etc
+            uint16_t shaped_throttle;
+            condition_throttle(joysticks.throttle, &shaped_throttle);
+
+            uint16_t data[2] = { joysticks.throttle, shaped_throttle };
+            CDC_Transmit_FS((uint8_t *)&data, sizeof(data));
 
             // instead of doing joysticks --> angles
             // do joysticks--> angle rates, then integrate and convert those into quaternion
 
+            uint8_t key = (mode == QUAD_STATUS_ARMED) ? ARMED_KEY : DISARMED_KEY;
+
             rf_packet_params_t pkt = {
-                .throttle = joysticks.throttle,
-                .q_des = &q_des,
-                .yaw_rate = yaw_rate_deg,
+                .throttle = shaped_throttle,
                 .kp = kp,
                 .ki = ki,
                 .kd = kd,
-                .armed = mode,
+                .armed = key,
             };
+
+            pkt.q_des.q1 = q_des.q1;
+            pkt.q_des.q2 = q_des.q2;
+            pkt.q_des.q3 = q_des.q3;
+            pkt.q_des.q4 = q_des.q4;
 
             rf_ack_params_t ack;
             uint8_t ack_len;
-
-            if (mode == QUAD_STATUS_ARMED)
-                pkt.armed = ARMED_KEY;
-            else
-                pkt.armed = DISARMED_KEY;
 
             rf_send(&tx, (uint8_t *)&pkt, sizeof(rf_packet_params_t), (uint8_t *)&ack, &ack_len);
 
@@ -306,6 +318,20 @@ void encoder_sw_callback(encoder_handle_t * henc, encoder_event_t event)
         break;
     default:
     }
+}
+
+static void condition_throttle(uint16_t throttle, uint16_t * shaped_throttle)
+{
+    // clean up this implementation
+    uint16_t throttle_min = 400;
+    uint16_t throttle_center = 1900;
+    float deadband = 0.05;
+
+    uint16_t deadzone_start = throttle_center - throttle_center * deadband;
+    if (throttle < deadzone_start)
+        *shaped_throttle = (uint16_t)map(throttle, throttle_min, deadzone_start, 2047, 48);
+    else
+        *shaped_throttle = 0;
 }
 
 static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * q_des)
