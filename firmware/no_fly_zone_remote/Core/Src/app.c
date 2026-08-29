@@ -72,7 +72,8 @@ nrf_handle_t tx = {
         .rx_dr = FEAT_DISABLE,
         .tx_ds = FEAT_DISABLE,
         .max_rt = FEAT_DISABLE,
-    }};
+    },
+};
 
 ssd1306_handle_t oled = {
 
@@ -242,7 +243,7 @@ void app(void)
                 .kp = kp,
                 .ki = ki,
                 .kd = kd,
-                .armed = key,
+                .key = key,
             };
 
             pkt.q_des.q1 = q_des.q1;

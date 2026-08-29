@@ -6,11 +6,13 @@
 
 #define ARMED_KEY    0xAA
 #define DISARMED_KEY 0x55
+#define FAILSAFE_KEY 0x2C
 
 typedef enum : uint8_t
 {
     QUAD_STATUS_DISARMED = 0,
     QUAD_STATUS_ARMED,
+    QUAD_STATUS_FAILSAFE,
 
 } quad_arm_status_t;
 
@@ -23,7 +25,7 @@ typedef struct __attribute__((packed))
     float ki;
     float kd;
 
-    uint8_t armed;
+    uint8_t key;
 
 } rf_packet_params_t;
 
@@ -31,8 +33,8 @@ typedef struct __attribute__((packed))
 typedef struct
 {
 
-    uint8_t armed;
-    uint8_t rx_batt_lvl;
+    uint8_t key;
+    uint8_t rx_batt_lvl; // vbat?
 
 } rf_ack_params_t;
 
