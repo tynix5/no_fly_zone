@@ -2,18 +2,15 @@
 #include <string.h>
 
 /************************* DShot Helper Functions **********************/
-static void dshot_calculate_crc(uint16_t data, dshot_channel_t ch);
+static void dshot_init_buffer(dshot_handle_t * dshot);
+static status_t dshot_encode_pkt(dshot_handle_t * dshot, uint16_t throttle, uint8_t tel_req);
+static void dshot_calculate_crc(dshot_handle_t * dshot, uint16_t data);
+static status_t dshot_get_bitrate(dshot_bitrate_t bitrate, uint32_t * br);
+static status_t dshot_get_pkt_freq(dshot_freq_t frequency, uint32_t * f);
+static status_t dshot_set_timer_period(dshot_handle_t * dshot);
+static status_t dshot_set_pkt_len(dshot_handle_t * dshot);
+static status_t dshot_set_bit_times(dshot_handle_t * dshot);
 /***********************************************************************/
-
-// index 0 in these arrays corresponds to DSHOT_CH_1
-// index 1 corresponds to DSHOT_CH_2
-// index z corresponds to DSHOT_CH_(z+1)
-static uint32_t packets[DSHOT_MAX_N][DSHOT_MAX_PKT_W];               // stores encoded packets ready to be sent
-static uint32_t packets_temp[DSHOT_MAX_N][DSHOT_MAX_PKT_W];          // stores encoded packets ready to be sent
-static uint32_t packets_len[DSHOT_MAX_N];
-static uint32_t t1h_ccr[DSHOT_MAX_N];                           // list of "on" times for '1' bit for each timer
-static uint32_t t0h_ccr[DSHOT_MAX_N];                           // list of "on" times for '0' bit for each timer
-static uint8_t channel_en[DSHOT_MAX_N];                         // is current channel being used
 
 // Execution order
 // 1. Enable TIM + DMA
@@ -26,221 +23,180 @@ static uint8_t channel_en[DSHOT_MAX_N];                         // is current ch
 // 8. preload compare register is transferred to compare register
 // 9. After packet width # of transfers, packets_temp is loaded into packets, restarting process
 
-status_t dshot_init(dshot_handle_t * dshot)
+// Specifics
+// - _buff_len is the required amount of DShot bits in order to achieve f_pkt; first DSHOT_MIN_PKT_W elements are DShot timer compare widths
+//   remaining elements are padding 0s
+// - _dma_buff is twice the maximum length that DShot allows possible, allowing two packets to fit in the buffer
+// - when DShot starts, the first packet (contained in the first _buff_len words in the buffer) is sent
+// - after the first packet is sent, the HalfCpltCallback is called, allowing a new packet to be placed into the first half of the buffer
+// - after the second packet is sent, the CpltCallback is called, allowing a new packet to be placed into the second half of the buffer
+
+status_t dshot_init(dshot_handle_t * dshot, TIM_HandleTypeDef * htim, uint32_t ch, uint32_t f_tim, dshot_bitrate_t bitrate, dshot_freq_t f_pkt)
 {
     // PREREQUISITE
     // MUST HAVE DMA STREAMS FOR EACH TIMER AND CHANNEL ENABLED IN CUBEMX (CIRCULAR MODE)
     // Can use any channel with any timer frequency
-    if (dshot->n > DSHOT_MAX_N || dshot->bitrate > DSHOT_BR_1200_KBPS || dshot->frequency > DSHOT_FREQ_8_KHZ)
+    if (bitrate > DSHOT_BR_1200_KBPS || f_pkt > DSHOT_FREQ_8_KHZ || htim == NULL)
         return STATUS_INVALID;
-    
-    for (uint8_t i = 0; i < dshot->n; i++)
-    {
-        channel_en[i] = 0;          // channel is not currently active
 
-        __HAL_TIM_SET_COMPARE(dshot->stream[i].htim, dshot->stream[i].channel, 0);              // set duty cycle to 0
-        __HAL_TIM_ENABLE_OCxPRELOAD(dshot->stream[i].htim, dshot->stream[i].channel);           // enable output compare preload
+    dshot->htim = htim;
+    dshot->channel = ch;
+    dshot->bitrate = bitrate;
+    dshot->f_tim = f_tim;
+    dshot->f_pkt = f_pkt;
+    dshot->_active = DSHOT_STATUS_PAUSE;
 
-        uint32_t tim_freq = dshot->stream[i].freq;
-        uint32_t dshot_pkt_freq, dshot_bit_freq;
+    // consider using dynamic memory allocation for buffer since its size varies so much based on configuration
 
-        // set bit rate
-        switch (dshot->bitrate)
-        {
-            case DSHOT_BR_150_KBPS:
-                dshot_bit_freq = 150000;
-                break;
+    __HAL_TIM_SET_COMPARE(dshot->htim, dshot->channel, 0);    // set duty cycle to 0
+    __HAL_TIM_ENABLE_OCxPRELOAD(dshot->htim, dshot->channel); // enable output compare preload
 
-            case DSHOT_BR_300_KBPS:
-                dshot_bit_freq = 300000;
-                break;
+    dshot_init_buffer(dshot);
 
-            case DSHOT_BR_600_KBPS:
-                dshot_bit_freq = 600000;
-                break;
-
-            case DSHOT_BR_1200_KBPS:
-                dshot_bit_freq = 1200000;
-                break;
-
-            default:
-                return STATUS_INVALID;
-        }
-
-        // select packet frequency
-        switch (dshot->frequency)
-        {
-            case DSHOT_FREQ_500_HZ:
-                dshot_pkt_freq = 500;
-                break;
-                
-            case DSHOT_FREQ_1_KHZ:
-                dshot_pkt_freq = 1000;
-                break;
-
-            case DSHOT_FREQ_2_KHZ:
-                dshot_pkt_freq = 2000;
-                break;
-
-            case DSHOT_FREQ_4_KHZ:
-                dshot_pkt_freq = 4000;
-                break;
-
-            case DSHOT_FREQ_8_KHZ:
-                dshot_pkt_freq = 8000;
-                break;
-            
-            default:
-                return STATUS_INVALID;
-        }
-
-        uint32_t arr = (uint32_t) (tim_freq / dshot_bit_freq);                      // calculate timer period for one bit
-        uint32_t pkt_len = (uint32_t) (dshot_bit_freq / dshot_pkt_freq);            // calculate total timer cycles needed to achieve frequency
-
-        if (pkt_len < DSHOT_MIN_PKT_W)                                  // dshot packet needs to be completed before next one begins
-            return STATUS_INVALID;
-
-        packets_len[i] = pkt_len;
-
-        if (arr < 20)                                               // timer frequency needs to be higher to achieve accurate bit times
-            return STATUS_INVALID;
-
-        __HAL_TIM_SET_AUTORELOAD(dshot->stream[i].htim, arr - 1);   // set ARR value to achieve desired frequency
-        t1h_ccr[i] = (uint32_t) (DSHOT_T1H_FRAC * arr) - 1;         // calculate CCRx value for '1' bit
-        t0h_ccr[i] = (uint32_t) (DSHOT_T0H_FRAC * arr) - 1;         // calculate CCRx value for '0' bit
-    }
+    if (dshot_set_timer_period(dshot) == STATUS_INVALID)
+        return STATUS_INVALID;
+    if (dshot_set_pkt_len(dshot) == STATUS_INVALID)
+        return STATUS_INVALID;
+    if (dshot_set_bit_times(dshot) == STATUS_INVALID)
+        return STATUS_INVALID;
 
     return STATUS_OK;
 }
 
-status_t dshot_start(dshot_handle_t * dshot, dshot_channel_t * selected_ch, uint8_t n)
+status_t dshot_start(dshot_handle_t * dshot)
 {
-    // send encoded packet on selected channels (n # of channels)
-    if (n > dshot->n)
-        return STATUS_INVALID;
+    dshot->_active = DSHOT_STATUS_ACTIVE; // indicate channel is active
 
-    for (uint8_t i = 0; i < n; i++)
-    {
-        dshot_channel_t ch = selected_ch[i];
-        channel_en[ch] = 1;                      // channel is active
-
-        // if channel is already active, skip
-        if ((HAL_TIM_PWM_Start_DMA(dshot->stream[ch].htim, dshot->stream[ch].channel, packets[ch], packets_len[ch]) != HAL_OK))
-            continue;
-    }
+    // attempt to start DMA transactions with TIM
+    if (HAL_TIM_PWM_Start_DMA(dshot->htim, dshot->channel, dshot->_dma_buff, dshot->_buff_len * 2) != HAL_OK)
+        return STATUS_BUSY;
 
     return STATUS_OK;
 }
 
-status_t dshot_stop(dshot_handle_t * dshot, dshot_channel_t * selected_ch, uint8_t n)
+status_t dshot_stop(dshot_handle_t * dshot)
 {
-    if (n > dshot->n)
-        return STATUS_INVALID;
-
-    // disable channel
-    for (uint8_t i = 0; i < n; i++)
-    {
-        dshot_channel_t ch = selected_ch[i];
-        channel_en[ch] = 0;
-    }
-
+    // at completion of current packet, TIM will stop, stopping packets
+    dshot->_active = DSHOT_STATUS_PAUSE;
     return STATUS_OK;
 }
 
-status_t dshot_queue(dshot_handle_t * dshot, uint16_t throttle, uint8_t tel_req, dshot_channel_t ch)
+status_t dshot_queue(dshot_handle_t * dshot, uint16_t throttle, uint8_t tel_req)
 {
     if (throttle > DSHOT_MAX_THROTTLE)
         return STATUS_INVALID;
 
-    if (ch >= dshot->n)
-        return STATUS_INVALID;
+    // if DShot is stopped, prepare initial packet
+    // if DShot is running, next packet will contain new information
+    return dshot_encode_pkt(dshot, throttle, tel_req);
+}
 
+void dshot_complete_callback(dshot_handle_t * dshot, TIM_HandleTypeDef * htim)
+{
+    // ensure triggered channel is DShot channel
+    if (dshot->htim == htim)
+    {
+        uint32_t channel = 0;
+        switch (htim->Channel)
+        {
+        case HAL_TIM_ACTIVE_CHANNEL_1:
+            channel = TIM_CHANNEL_1;
+            break;
+        case HAL_TIM_ACTIVE_CHANNEL_2:
+            channel = TIM_CHANNEL_2;
+            break;
+        case HAL_TIM_ACTIVE_CHANNEL_3:
+            channel = TIM_CHANNEL_3;
+            break;
+        case HAL_TIM_ACTIVE_CHANNEL_4:
+            channel = TIM_CHANNEL_4;
+            break;
+        default:
+            return;
+        }
+
+        // ensure channels match
+        if (dshot->channel != channel)
+            return;
+
+        // if stop has been requested, stop immediately
+        if (dshot->_active == DSHOT_STATUS_PAUSE)
+            HAL_TIM_PWM_Stop_DMA(dshot->htim, dshot->channel);
+
+        // if DShot is complete, second half of buffer is free to write to
+        // copy next packet in queue to current buffer
+        memcpy((uint8_t *)(dshot->_dma_buff + dshot->_buff_len), (uint8_t *)dshot->_next_pkt, sizeof(dshot->_next_pkt));
+    }
+}
+
+void dshot_half_complete_callback(dshot_handle_t * dshot, TIM_HandleTypeDef * htim)
+{
+    // ensure triggered channel is DShot channel
+    if (dshot->htim == htim)
+    {
+        uint32_t channel = 0;
+        switch (htim->Channel)
+        {
+        case HAL_TIM_ACTIVE_CHANNEL_1:
+            channel = TIM_CHANNEL_1;
+            break;
+        case HAL_TIM_ACTIVE_CHANNEL_2:
+            channel = TIM_CHANNEL_2;
+            break;
+        case HAL_TIM_ACTIVE_CHANNEL_3:
+            channel = TIM_CHANNEL_3;
+            break;
+        case HAL_TIM_ACTIVE_CHANNEL_4:
+            channel = TIM_CHANNEL_4;
+            break;
+        default:
+            return;
+        }
+
+        // ensure channels match
+        if (dshot->channel != channel)
+            return;
+        
+        // do not request to stop DMA in middle of transfer to avoid errors
+
+        // if DShot is half complete, first half of buffer is free to write to
+        // copy next packet in queue to current buffer
+        memcpy((uint8_t *)dshot->_dma_buff, (uint8_t *)dshot->_next_pkt, sizeof(dshot->_next_pkt));
+    }
+}
+
+/************************* DShot Helper Functions **********************/
+static void dshot_init_buffer(dshot_handle_t * dshot)
+{
+    // set all memory locations to zero to begin
+    memset(dshot->_dma_buff, 0, sizeof(dshot->_dma_buff));
+    memset(dshot->_next_pkt, 0, sizeof(dshot->_next_pkt));
+}
+
+static status_t dshot_encode_pkt(dshot_handle_t * dshot, uint16_t throttle, uint8_t tel_req)
+{
     uint16_t data = (throttle << 1) | !!tel_req;
     uint8_t ind = 0;
 
     // encode binary packet into a series of on/off times
     for (uint8_t i = DSHOT_THROTTLE_W + DSHOT_TEL_REQ_W - 1; i < 255; i--)
     {
-        // if channel is not currently running, write directly to packet address
-        if (!channel_en[ch])
-        {
-            // encode bits into timer compare values
-            if (data & (1 << i))
-                packets[ch][ind] = t1h_ccr[ch];
-            else
-                packets[ch][ind] = t0h_ccr[ch];
-        }
-        
-        // write directly to next packet regardless of channel status
+        // build packet data
         if (data & (1 << i))
-            packets_temp[ch][ind] = t1h_ccr[ch];
+            dshot->_next_pkt[ind] = dshot->_t1h;
         else
-            packets_temp[ch][ind] = t0h_ccr[ch];
+            dshot->_next_pkt[ind] = dshot->_t0h;
 
         ind++;
     }
 
-    dshot_calculate_crc(data, ch);
-
-    for (uint16_t i = DSHOT_MIN_PKT_W - 1; i < packets_len[ch]; i++)
-    {
-        if (!channel_en[ch])
-            packets[ch][i] = 0;                    // 0 duty cycle for last bit
-            
-        packets_temp[ch][i] = 0;
-    }
+    dshot_calculate_crc(dshot, data);
+    dshot->_next_pkt[DSHOT_MIN_PKT_W - 1] = 0;
 
     return STATUS_OK;
 }
 
-void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
-{
-    uint8_t ch;
-
-    switch (htim->Channel)
-    {
-        // queue next packet unless deactivated
-        case HAL_TIM_ACTIVE_CHANNEL_1:
-
-            ch = 0;
-            if (!channel_en[ch])
-                HAL_TIM_PWM_Stop_DMA(htim, TIM_CHANNEL_1);
-
-            break;
-
-        case HAL_TIM_ACTIVE_CHANNEL_2:
-
-            ch = 1;
-            if (!channel_en[ch])
-                HAL_TIM_PWM_Stop_DMA(htim, TIM_CHANNEL_2);
-
-            break;
-
-        case HAL_TIM_ACTIVE_CHANNEL_3:
-
-            ch = 2;
-            if (!channel_en[ch])
-                HAL_TIM_PWM_Stop_DMA(htim, TIM_CHANNEL_3);
-
-            break;
-
-        case HAL_TIM_ACTIVE_CHANNEL_4:
-
-            ch = 3;
-            if (!channel_en[ch])
-                HAL_TIM_PWM_Stop_DMA(htim, TIM_CHANNEL_4);
-
-            break;
-
-        default:
-            return;
-    }
-
-    memcpy(&packets[ch], &packets_temp[ch], packets_len[ch] * sizeof(packets[0][0]));            // must be completed before start of next packet
-}
-
-/************************* DShot Helper Functions **********************/
-static void dshot_calculate_crc(uint16_t data, dshot_channel_t ch)
+static void dshot_calculate_crc(dshot_handle_t * dshot, uint16_t data)
 {
     // XOR all nibbles together
     uint8_t crc = ((data ^ (data >> 4)) ^ (data >> 8)) & 0x0f;
@@ -251,20 +207,109 @@ static void dshot_calculate_crc(uint16_t data, dshot_channel_t ch)
     // encode CRC into timer compare values
     for (uint8_t i = DSHOT_CRC_W - 1; i < 255; i--)
     {
-        if (!channel_en[ch])
-        {
-            if (crc & (1 << i))
-                packets[ch][ind + offset] = t1h_ccr[ch];
-            else
-                packets[ch][ind + offset] = t0h_ccr[ch];
-        }
-            
         if (crc & (1 << i))
-            packets_temp[ch][ind + offset] = t1h_ccr[ch];
+            dshot->_next_pkt[ind + offset] = dshot->_t1h;
         else
-            packets_temp[ch][ind + offset] = t0h_ccr[ch];
+            dshot->_next_pkt[ind + offset] = dshot->_t0h;
 
         ind++;
     }
+}
+
+static status_t dshot_get_bitrate(dshot_bitrate_t bitrate, uint32_t * br)
+{
+    // select bit rate
+    switch (bitrate)
+    {
+    case DSHOT_BR_150_KBPS:
+        *br = 150000;
+        break;
+    case DSHOT_BR_300_KBPS:
+        *br = 300000;
+        break;
+    case DSHOT_BR_600_KBPS:
+        *br = 600000;
+        break;
+    case DSHOT_BR_1200_KBPS:
+        *br = 1200000;
+        break;
+    default:
+        return STATUS_INVALID;
+    }
+
+    return STATUS_OK;
+}
+
+static status_t dshot_get_pkt_freq(dshot_freq_t frequency, uint32_t * f)
+{
+    // select packet frequency
+    switch (frequency)
+    {
+    case DSHOT_FREQ_500_HZ:
+        *f = 500;
+        break;
+    case DSHOT_FREQ_1_KHZ:
+        *f = 1000;
+        break;
+    case DSHOT_FREQ_2_KHZ:
+        *f = 2000;
+        break;
+    case DSHOT_FREQ_4_KHZ:
+        *f = 4000;
+        break;
+    case DSHOT_FREQ_8_KHZ:
+        *f = 8000;
+        break;
+    default:
+        return STATUS_INVALID;
+    }
+
+    return STATUS_OK;
+}
+
+static status_t dshot_set_timer_period(dshot_handle_t * dshot)
+{
+    uint32_t f_bit;
+
+    if (dshot_get_bitrate(dshot->bitrate, &f_bit) == STATUS_INVALID)
+        return STATUS_INVALID;
+
+    // TIM ARR is calculated based on timer frequency and bit frequency
+    dshot->_arr = (uint32_t)(dshot->f_tim / f_bit);
+
+    // TIM ARR must be high enough for accurate bit resolution
+    if (dshot->_arr < DSHOT_TIM_MIN_ARR)
+        return STATUS_INVALID;
+
+    return STATUS_OK;
+}
+
+static status_t dshot_set_pkt_len(dshot_handle_t * dshot)
+{
+    uint32_t f_bit, f_pkt;
+
+    if (dshot_get_pkt_freq(dshot->f_pkt, &f_pkt) == STATUS_INVALID)
+        return STATUS_INVALID;
+    if (dshot_get_bitrate(dshot->bitrate, &f_bit) == STATUS_INVALID)
+        return STATUS_INVALID;
+
+    // # of bits needed to achieve correct packet frequency
+    dshot->_buff_len = (uint32_t)(f_bit / f_pkt);
+
+    // DMA buffer length needs to be at least as long as DShot packet
+    if (dshot->_buff_len < DSHOT_MIN_PKT_W)
+        return STATUS_INVALID;
+
+    return STATUS_OK;
+}
+
+static status_t dshot_set_bit_times(dshot_handle_t * dshot)
+{
+    __HAL_TIM_SET_AUTORELOAD(dshot->htim, dshot->_arr - 1);     // set ARR value to achieve desired frequency
+
+    dshot->_t1h = (uint32_t)(DSHOT_T1H_FRAC * dshot->_arr) - 1; // calculate CCRx value for '1' bit
+    dshot->_t0h = (uint32_t)(DSHOT_T0H_FRAC * dshot->_arr) - 1; // calculate CCRx value for '0' bit
+
+    return STATUS_OK;
 }
 /***********************************************************************/

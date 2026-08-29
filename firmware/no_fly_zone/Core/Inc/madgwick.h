@@ -16,6 +16,7 @@ typedef struct {
 
 } madgwick_state_t;
 
+// add a calculate error function?
 void madgwick_init(madgwick_state_t * state);
 void madgwick_update(float a_x, float a_y, float a_z, float w_x, float w_y, float w_z, madgwick_state_t * state);
 
