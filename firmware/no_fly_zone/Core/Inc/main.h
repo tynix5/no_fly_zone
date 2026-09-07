@@ -59,10 +59,10 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define VBAT_ADC_Pin GPIO_PIN_6
-#define VBAT_ADC_GPIO_Port GPIOA
-#define CURR_ADC_Pin GPIO_PIN_7
-#define CURR_ADC_GPIO_Port GPIOA
+#define VBAT_SENSE_Pin GPIO_PIN_6
+#define VBAT_SENSE_GPIO_Port GPIOA
+#define CURR_SENSE_Pin GPIO_PIN_7
+#define CURR_SENSE_GPIO_Port GPIOA
 #define STAT3_Pin GPIO_PIN_2
 #define STAT3_GPIO_Port GPIOB
 #define BAR_CS_Pin GPIO_PIN_12
