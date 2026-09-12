@@ -28,6 +28,10 @@
 
 #define PKT_PER_ACK             10
 
+#define ADC_RES_CNT             4096.0f
+
+void delay_us(uint32_t delay);
+
 nrf_handle_t rx = {
 
     .ce_gpio = RF_CE_GPIO_Port,
@@ -35,6 +39,7 @@ nrf_handle_t rx = {
     .cs_gpio = RF_CS_GPIO_Port,
     .cs_pin = RF_CS_Pin,
     .delay_ms = HAL_Delay,
+    .delay_us = delay_us,
 
     .this_addr = RF_RX_ADDR,
     .node_addr = RF_TX_ADDR,
@@ -101,20 +106,23 @@ madgwick_state_t state = {
 
 bms_handle_t bms = {
     .type = BMS_LIPO_TYPE,
-    .res = BMS_ADC_RES_12BIT,
     .cell_cnt = 4,
     .div = 6, // ? make sure
-    .supply_v = 3.3,
+    .v_ref = 3.3,
 };
 
 bldc_handle_t bldc;
 
 volatile uint8_t rf_dr = 0, imu_dr = 0, bar_dr = 0;
-uint32_t last_pkt_tick = 0, last_imu_tick = 0, last_bar_tick = 0;
+uint32_t last_pkt_tick, last_imu_tick, last_bar_tick;
 
 IWDG_HandleTypeDef * iwdg;
+TIM_HandleTypeDef * tim_us;
 
+// sense_adc[0]: VBAT_SENSE
+// sense_adc[1]: CURR_SENSE
 uint16_t sense_adc[2];
+
 /********************************************************************************************** */
 typedef enum : uint8_t
 {
@@ -127,18 +135,18 @@ typedef enum : uint8_t
 failsafe_type_t failsafe_cause = 0;
 /********************************************************************************************** */
 
-quad_arm_status_t mode = QUAD_STATUS_DISARMED;
+arm_status_t mode_quad = MODE_STATUS_DISARMED;
 
 static void construct_ack(rf_ack_params_t * ack);
-// static void check_pkt_valid(rf_packet_params_t * pkt);
-void bms_event_callback(bms_handle_t * bms, bms_event_t event);
+void bms_callback(bms_handle_t * bms, bms_event_t event);
 
-void app_init(ADC_HandleTypeDef * hadc1,
-              SPI_HandleTypeDef * hspi2,
-              SPI_HandleTypeDef * hspi3,
-              TIM_HandleTypeDef * htim2,
-              TIM_HandleTypeDef * htim3,
-              TIM_HandleTypeDef * htim5,
+void app_init(ADC_HandleTypeDef * hadc,
+              SPI_HandleTypeDef * hspi_sensor,
+              SPI_HandleTypeDef * hspi_rf,
+              TIM_HandleTypeDef * htim2_motor,
+              TIM_HandleTypeDef * htim_adc,
+              TIM_HandleTypeDef * htim5_motor,
+              TIM_HandleTypeDef * htim_us,
               IWDG_HandleTypeDef * hiwdg)
 {
     // deselect all slaves at start
@@ -151,18 +159,27 @@ void app_init(ADC_HandleTypeDef * hadc1,
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);
 
-    // try to recover if one of these is not successful
-    rx.hspi = hspi3;
+    tim_us = htim_us;
+    rx.hspi = hspi_rf;
+    bar.hspi = hspi_sensor;
+    imu.hspi = hspi_sensor;
+    iwdg = hiwdg;
+
+    /********************************************* Configure nRF24l01 *****************************************/
+    HAL_TIM_Base_Start(htim_us); // start microsecond timer for rf_init()
     if (rf_init(&rx) == RF_SUCCESS)
         HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
+    /**********************************************************************************************************/
 
-    bar.hspi = hspi2;
+    /******************************************** Configure barometer *****************************************/
     if (bar_init(&bar) == STATUS_OK)
         HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
+    /**********************************************************************************************************/
 
-    imu.hspi = hspi2;
+    /*********************************************** Configure IMU ********************************************/
     if (imu_init(&imu) == STATUS_OK)
         HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_SET);
+    /**********************************************************************************************************/
 
     HAL_Delay(1000);
 
@@ -170,22 +187,35 @@ void app_init(ADC_HandleTypeDef * hadc1,
     HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_RESET);
 
-    HAL_IWDG_Init(hiwdg);   // T = 0.5s
-    iwdg = hiwdg;
+    /******************************************** Configure Watchdog ******************************************/
+    hiwdg->Instance = IWDG;
+    hiwdg->Init.Prescaler = IWDG_PRESCALER_4;
+    hiwdg->Init.Reload = 3999;
+    HAL_IWDG_Init(hiwdg); // T = 0.5s
+    /**********************************************************************************************************/
 
-    bldc_init(&bldc, htim2, htim5);
+    /***************************************** Configure DShot channels ***************************************/
+    bldc_init(&bldc, htim2_motor, htim5_motor);
     bldc_enable(&bldc);
+    /**********************************************************************************************************/
 
-    bms_init(&bms); // maybe move init information from struct to inline arguments
-    bms_register_callback(&bms, bms_event_callback);
+    /************************************** Configure battery management **************************************/
+    bms_init(&bms, bms_callback);
+    /**********************************************************************************************************/
 
+    /**************************************** Initiate Madgwick Filter ****************************************/
     madgwick_init(&state);
+    /**********************************************************************************************************/
 
+    /************************************** Configure and Start ADC + DMA *************************************/
     // make sure this is working
-    HAL_ADC_Start_DMA(hadc1, (uint32_t *)sense_adc, 2); // enable ADC conversion for VBAT_SENSE and CURR_SENSE
-    HAL_TIM_Base_Start(htim3);                          // start triggering ADC (T = 0.2s)
+    HAL_ADC_Start_DMA(hadc, (uint32_t *)sense_adc, 2); // enable ADC conversion for VBAT_SENSE and CURR_SENSE
+    HAL_TIM_Base_Start(htim_adc);                      // start triggering ADC (T = 0.2s)
+    /**********************************************************************************************************/
 
     rf_listen_it(&rx);
+
+    last_pkt_tick = last_imu_tick = last_bar_tick = HAL_GetTick();
 }
 
 void app(void)
@@ -222,25 +252,27 @@ void app(void)
             // copy to a valid packet if available
             if (temp_size == sizeof(rf_packet_params_t))
             {
+                HAL_GPIO_TogglePin(STAT1_GPIO_Port, STAT1_Pin);
+
                 switch (temp.key)
                 {
                 case DISARMED_KEY:
                     memcpy((uint8_t *)&pkt, (uint8_t *)&temp, sizeof(rf_packet_params_t));
                     has_been_disarmed = 1;
                     // do not go into disarm mode if something has failed
-                    if (mode != QUAD_STATUS_FAILSAFE)
-                        mode = QUAD_STATUS_DISARMED;
+                    if (mode_quad != MODE_STATUS_FAILSAFE)
+                        mode_quad = MODE_STATUS_DISARMED;
                     break;
                 case ARMED_KEY:
                     memcpy((uint8_t *)&pkt, (uint8_t *)&temp, sizeof(rf_packet_params_t));
                     // prevent quadcopter from arming if it has never seen a disarmed packet
-                    if (has_been_disarmed && mode != QUAD_STATUS_FAILSAFE)
-                        mode = QUAD_STATUS_ARMED;
+                    if (has_been_disarmed && mode_quad != MODE_STATUS_FAILSAFE)
+                        mode_quad = MODE_STATUS_ARMED;
                     break;
                 case FAILSAFE_KEY:
                     memcpy((uint8_t *)&pkt, (uint8_t *)&temp, sizeof(rf_packet_params_t));
-                    mode = QUAD_STATUS_FAILSAFE;
-                    // remote type doesn't really make sense
+                    mode_quad = MODE_STATUS_FAILSAFE;
+                    // remote type doesn't really make sense, wouldn't receive anything from remote if it failed
                     failsafe_cause |= FAILSAFE_TYPE_REMOTE;
                     break;
                 default:
@@ -260,22 +292,19 @@ void app(void)
 
         if (tick - last_pkt_tick > RF_FAILSAFE_TIMEOUT_MS && pkt_cnt != 0)
         {
-            mode = QUAD_STATUS_FAILSAFE;
+            mode_quad = MODE_STATUS_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_RF;
         }
         if (tick - last_imu_tick > IMU_FAILSAFE_TIMEOUT_MS)
         {
-            mode = QUAD_STATUS_FAILSAFE;
+            mode_quad = MODE_STATUS_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_IMU;
         }
         // if (tick - last_bar_tick > BAR_FAILSAFE_TIMEOUT_MS)
         // {
-        //     mode = QUAD_STATUS_FAILSAFE;
+        //     mode_quad = MODE_STATUS_FAILSAFE;
         //     failsafe_cause |= FAILSAFE_TYPE_BAR;
         // }
-
-        // use generic watchdog for failsafe
-        // reset it every loop iteration in case something gets hung up
 
         if (imu_dr)
         {
@@ -287,6 +316,8 @@ void app(void)
             imu_read_accel_mps2(&imu, &a_x, &a_y, &a_z);
             madgwick_update(a_x, a_y, a_z, w_x, w_y, w_z, &state);
 
+            HAL_GPIO_TogglePin(STAT2_GPIO_Port, STAT2_Pin);
+
             // stream orientation over USB (for debugging)
             // float data[] = { state.q_state.q1, state.q_state.q2, state.q_state.q3, state.q_state.q4 };
             // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
@@ -294,32 +325,36 @@ void app(void)
             imu_dr = 0;
         }
 
-        // only update these when radio packet received or imu new data ready?
         // calculate orientation (only if IMU working)
-        switch (mode)
+        mode_quad = MODE_STATUS_ARMED;  /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+        switch (mode_quad)
         {
-        case QUAD_STATUS_DISARMED:
+        case MODE_STATUS_DISARMED:
             // stop motors
             bldc_stop(&bldc);
-            bldc_send(&bldc);
             // float data[] = { 0, 0, 0, 0 };
             // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
             HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
             break;
 
-        case QUAD_STATUS_ARMED:
+        case MODE_STATUS_ARMED:
             // calculate quaternion error
             // convert quaternion error to a rate error
             // convert rate error to torque/speed commands
             // mix torque/speed commands
             // send to motors
 
+            HAL_GPIO_TogglePin(STAT3_GPIO_Port, STAT3_Pin);
+
             // compute rotation needed to move from current orientation to desired orientation (AKA error)
             quaternion_t q_state_conj, q_err;
             quat_copy(state.q_state, &q_state_conj);
             quat_conjugate(&q_state_conj);
-            quat_mult(q_state_conj, pkt.q_des, &q_err);
+            quaternion_t q_des_sample = { .q1 = 1, .q2 = 0, .q3 = 0, .q4 = 0 };
+            quat_mult(q_state_conj, q_des_sample, &q_err);
+            // quat_mult(q_state_conj, pkt.q_des, &q_err);
 
             // convert error to rate error
             float sign = 1.0;
@@ -351,19 +386,24 @@ void app(void)
             // float tau_x = pkt.kp * w_x_err + pkt.ki * w_x_sum + pkt.kd * w_x_err - last_w_x;
             // float tau_y = pkt.kp * w_y_err + pkt.ki * w_y_sum + pkt.kd * w_y_err - last_w_y;
             // float tau_z = pkt.kp * w_z_err + pkt.ki * w_z_sum + pkt.kd * w_z_err - last_w_z;
-            float tau_x = pkt.kp * w_x_err;
-            float tau_y = pkt.kp * w_y_err;
-            float tau_z = pkt.kp * w_z_err;
+            float test_kp = 50.0;
+            float tau_x = test_kp * w_x_err;
+            float tau_y = test_kp * w_y_err;
+            float tau_z = test_kp * w_z_err;
             // mix torque commands for each motor
 
             // determine directions for tau_x, tau_y, tau_z
             // tau_x requires left motors to match, right motors to match
             // tau_y requires front motors to match, back motors to match
             // tau_z requires diagonals to match
-            bldc.throttles.speed_fl = pkt.throttle + tau_x - tau_y + tau_z;
-            bldc.throttles.speed_fr = pkt.throttle - tau_x - tau_y - tau_z;
-            bldc.throttles.speed_bl = pkt.throttle + tau_x + tau_y - tau_z;
-            bldc.throttles.speed_br = pkt.throttle - tau_x + tau_y + tau_z;
+            float throttle_test = 1000;
+            // tau x if side to side filt
+            // tau y is forward/back tilt
+            // tau z is yaw
+            bldc.throttles.speed_fl = throttle_test + tau_x + tau_y + tau_z;
+            bldc.throttles.speed_fr = throttle_test - tau_x + tau_y - tau_z;
+            bldc.throttles.speed_bl = throttle_test + tau_x - tau_y - tau_z;
+            bldc.throttles.speed_br = throttle_test - tau_x - tau_y + tau_z;
 
             bldc_clamp(&bldc.throttles.speed_fl, DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE);
             bldc_clamp(&bldc.throttles.speed_fr, DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE);
@@ -371,35 +411,38 @@ void app(void)
             bldc_clamp(&bldc.throttles.speed_br, DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE);
 
             // uncomment after testing
-            bldc_mix(&bldc, pkt.throttle, tau_x, tau_y, tau_z);
-            bldc_send(&bldc);
+            // bldc_mix(&bldc, pkt.throttle, tau_x, tau_y, tau_z);
+            // bldc_send(&bldc);
 
-            // uint16_t data[] = { motor_speed_fl, motor_speed_fr, motor_speed_bl, motor_speed_br };
-            // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
+            uint16_t data[] = { bldc.throttles.speed_fl, bldc.throttles.speed_fr, bldc.throttles.speed_bl, bldc.throttles.speed_br };
+            CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
             // HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
             break;
 
-        case QUAD_STATUS_FAILSAFE:
+        case MODE_STATUS_FAILSAFE:
 
             // immediately stop and disable motors
             bldc_stop(&bldc);
-            bldc_send(&bldc);
             bldc_disable(&bldc);
 
             while (1)
             {
                 // disable IMU, barometer, RF?
                 // for initial versions, do not even attempt to recover from failure
+                // must reset watchdog though
+                HAL_IWDG_Refresh(iwdg);
                 HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
                 HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
                 HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_RESET);
-                HAL_Delay(250);
+                HAL_Delay(100);
+                HAL_IWDG_Refresh(iwdg);
                 HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
                 HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
                 HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_SET);
-                HAL_Delay(250);
+                HAL_Delay(100);
             }
+
             break;
 
         default:
@@ -407,57 +450,29 @@ void app(void)
     }
 }
 
-static void construct_ack(rf_ack_params_t * ack)
-{
-    ack->rx_batt_lvl = bms_update(&bms, sense_adc[0]);
-
-    switch (mode)
-    {
-    case QUAD_STATUS_DISARMED:
-        ack->key = DISARMED_KEY;
-        break;
-    case QUAD_STATUS_ARMED:
-        ack->key = ARMED_KEY;
-        break;
-    case QUAD_STATUS_FAILSAFE:
-    default:
-        ack->key = FAILSAFE_KEY;
-    }
-}
-
-void bms_event_callback(bms_handle_t * bms, bms_event_t event)
-{
-    // if battery dies, immediately go into failsafe mode to prevent full discharge
-    if (event == BMS_EVENT_CHARGE_EMPTY)
-    {
-        mode = QUAD_STATUS_FAILSAFE;
-    }
-}
-
+/************************************************* Interrupt Callbacks *****************************************************/
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
     // RF IRQ on falling edge
     if (GPIO_Pin == RF_IRQ_Pin)
     {
         rf_dr = 1;
-        // last_pkt_tick = HAL_GetTick();
     }
     // IMU IRQ on rising edge
     if (GPIO_Pin == IMU_IRQ1_Pin)
     {
         imu_dr = 1;
-        // last_imu_tick = HAL_GetTick();
     }
     // BAR IRQ on rising edge
     if (GPIO_Pin == BAR_IRQ_Pin)
     {
         bar_dr = 1;
-        // last_bar_tick = HAL_GetTick();
     }
 }
 
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef * htim)
 {
+    // found in dshot.h
     dshot_complete_callback(&bldc.motor_fl, htim);
     dshot_complete_callback(&bldc.motor_fr, htim);
     dshot_complete_callback(&bldc.motor_bl, htim);
@@ -466,8 +481,48 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef * htim)
 
 void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef * htim)
 {
+    // found in dshot.h
     dshot_half_complete_callback(&bldc.motor_fl, htim);
     dshot_half_complete_callback(&bldc.motor_fr, htim);
     dshot_half_complete_callback(&bldc.motor_bl, htim);
     dshot_half_complete_callback(&bldc.motor_br, htim);
+}
+/***************************************************************************************************************************/
+
+static void construct_ack(rf_ack_params_t * ack)
+{
+    float percent;
+    if (bms_update(&bms, (float)sense_adc[0] / ADC_RES_CNT, &percent) != STATUS_OK)
+        return;
+
+    ack->quad_batt_lvl = (uint8_t)percent;
+
+    switch (mode_quad)
+    {
+    case MODE_STATUS_DISARMED:
+        ack->key = DISARMED_KEY;
+        break;
+    case MODE_STATUS_ARMED:
+        ack->key = ARMED_KEY;
+        break;
+    case MODE_STATUS_FAILSAFE:
+    default:
+        ack->key = FAILSAFE_KEY;
+    }
+}
+
+void bms_callback(bms_handle_t * bms, bms_event_t event)
+{
+    // if battery dies, immediately go into failsafe mode to prevent full discharge
+    if (event == BMS_EVENT_CHARGE_EMPTY)
+    {
+        mode_quad = MODE_STATUS_FAILSAFE;
+    }
+}
+
+void delay_us(uint32_t delay)
+{
+    __HAL_TIM_SET_COUNTER(tim_us, 0);
+    while (__HAL_TIM_GET_COUNTER(tim_us) < delay)
+        ;
 }
