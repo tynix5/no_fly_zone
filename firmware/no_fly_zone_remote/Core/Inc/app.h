@@ -17,8 +17,9 @@ void app_init(ADC_HandleTypeDef * hadc,
               DMA_HandleTypeDef * hdma,
               I2C_HandleTypeDef * hi2c,
               SPI_HandleTypeDef * hspi,
-              TIM_HandleTypeDef * htim,
-              TIM_HandleTypeDef * henc);
+              TIM_HandleTypeDef * htim_adc,
+              TIM_HandleTypeDef * henc,
+              TIM_HandleTypeDef * htim_us);
 void app(void);
 
 #endif

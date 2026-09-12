@@ -28,7 +28,7 @@ void oled_update(ssd1306_handle_t * holed, oled_params_t * params)
     }
     else if (params->page == PAGE_3)
     {
-        oled_show_pid(holed, params->kp, params->ki, params->kd, params->active_tune);
+        oled_show_pid(holed, params->kp, params->ki, params->kd, params->tuning_param);
     }
 
     ssd1306_update(holed);
@@ -58,6 +58,7 @@ void oled_show_page(ssd1306_handle_t * holed, oled_pages_t page)
 
 void oled_show_lock(ssd1306_handle_t * holed, uint8_t mode)
 {
+    // add failsafe mode
     // disarmed
     if (mode == 0)
     {
@@ -133,39 +134,45 @@ void oled_show_joysticks(ssd1306_handle_t * holed, joystick_t * joysticks)
     ssd1306_draw_filled_circle(holed, right_x + 100, right_y + 32, 3);
 }
 
-void oled_show_pid(ssd1306_handle_t * holed, float kp, float ki, float kd, oled_active_tune_param_t active_tune)
+void oled_show_pid(ssd1306_handle_t * holed, float kp, float ki, float kd, oled_active_tune_param_t tuning_param)
 {
 
     // find a better way to do this
-    if (active_tune == ACTIVE_TUNE_KP)
+    if (tuning_param == ACTIVE_TUNE_KP)
         ssd1306_draw_filled_circle(holed, 10, 20, 3);
-    else if (active_tune == ACTIVE_TUNE_KI)
+    else if (tuning_param == ACTIVE_TUNE_KI)
         ssd1306_draw_filled_circle(holed, 10, 30, 3);
-    else if (active_tune == ACTIVE_TUNE_KD)
+    else if (tuning_param == ACTIVE_TUNE_KD)
         ssd1306_draw_filled_circle(holed, 10, 40, 3);
 
     ssd1306_write_str(holed, 20, 20, "Kp: ");
     ssd1306_write_str(holed, 20, 30, "Ki: ");
     ssd1306_write_str(holed, 20, 40, "Kd: ");
 
-    int kp_ten = (int)kp / 10.0;
-    int kp_one = (int)kp % 10;
-    int kp_tenth = (int)(kp * 10.0) % 10;
-    int kp_hundredth = (int)round(kp * 100.0) % 10;
+    int kp_rounded = (int)roundf(kp * 100.0f);
+
+    int kp_ten = kp_rounded / 1000;
+    int kp_one = kp_rounded / 100 % 10;
+    int kp_tenth = kp_rounded / 10 % 10;
+    int kp_hundredth = kp_rounded % 10;
 
     char kp_buff[6] = { kp_ten + '0', kp_one + '0', '.', kp_tenth + '0', kp_hundredth + '0', '\0' };
 
-    int ki_ten = (int)ki / 10;
-    int ki_one = (int)ki % 10;
-    int ki_tenth = (int)(ki * 10.0) % 10;
-    int ki_hundredth = (int)round(ki * 100.0) % 10;
+    int ki_rounded = (int)roundf(ki * 100.0f);
+
+    int ki_ten = ki_rounded / 1000;
+    int ki_one = ki_rounded / 100 % 10;
+    int ki_tenth = ki_rounded / 10 % 10;
+    int ki_hundredth = ki_rounded % 10;
 
     char ki_buff[6] = { ki_ten + '0', ki_one + '0', '.', ki_tenth + '0', ki_hundredth + '0', '\0' };
 
-    int kd_ten = (int)kd / 10;
-    int kd_one = (int)kd % 10;
-    int kd_tenth = (int)(kd * 10.0) % 10;
-    int kd_hundredth = (int)round(kd * 100.0) % 10;
+    int kd_rounded = (int)roundf(kd * 100.0f);
+
+    int kd_ten = kd_rounded / 1000;
+    int kd_one = kd_rounded / 100 % 10;
+    int kd_tenth = kd_rounded / 10 % 10;
+    int kd_hundredth = kd_rounded % 10;
 
     char kd_buff[6] = { kd_ten + '0', kd_one + '0', '.', kd_tenth + '0', kd_hundredth + '0', '\0' };
     ssd1306_write_str(holed, 52, 20, kp_buff);

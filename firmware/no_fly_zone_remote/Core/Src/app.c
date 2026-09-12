@@ -1,29 +1,26 @@
 #include "app.h"
 #include "main.h"
-#include "nrf24.h"
-#include "encoder.h"
-#include "oled_helper.h"
-#include "quaternion.h"
-#include "rf_structs.h"
-#include "ssd1306.h"
 #include "stm32l432xx.h"
 #include "stm32l4xx_hal.h"
 #include "usbd_cdc_if.h"
 #include <math.h>
 #include <string.h>
 
+#include "nrf24.h"
+#include "encoder.h"
+#include "oled_helper.h"
+#include "quaternion.h"
+#include "rf_structs.h"
+#include "ssd1306.h"
+#include "bms.h"
+
 #define RF_TX_ADDR         0xE7E7E7E7
 #define RF_RX_ADDR         0xE7E7E7E7
 
 #define N_ADC_SAMPLES      5
-#define ADC_SAMP_RATE      25 // Hz
+#define ADC_SAMP_RATE      200 // Hz
 #define ADC_SAMP_DT        (float)(1.0 / ADC_SAMP_RATE)
-
-#define CELL_COUNT         1  // 1S LiPo
-#define CELL_MAX_V         4.2
-#define CELL_MIN_V         3.75
-#define BAT_MAX_V          CELL_COUNT * CELL_MAX_V
-#define BAT_MIN_V          CELL_COUNT * CELL_MIN_V
+#define ADC_RES_CNT        4096.0f
 
 #define MAX_PITCH_RATE_DEG 360
 #define MIN_PITCH_RATE_DEG -360
@@ -51,6 +48,8 @@ volatile uint8_t adc_dr = 0;
 float kp = 0, ki = 0, kd = 0;
 
 // nRF24L01 parameters, should match receiver params
+void delay_us(uint32_t delay);
+
 nrf_handle_t tx = {
 
     .ce_gpio = RF_CE_GPIO_Port,
@@ -58,6 +57,7 @@ nrf_handle_t tx = {
     .cs_gpio = RF_CS_GPIO_Port,
     .cs_pin = RF_CS_Pin,
     .delay_ms = HAL_Delay,
+    .delay_us = delay_us,
 
     .this_addr = RF_RX_ADDR,
     .node_addr = RF_TX_ADDR,
@@ -85,57 +85,77 @@ ssd1306_handle_t oled = {
 };
 
 encoder_handle_t enc = {
+
     .sw_gpio = ENC_SW_GPIO_Port,
     .sw_pin = ENC_SW_Pin,
     .mode = ENCODER_MODE_TIM,
     .t_update = 100,
 };
 
-void encoder_callback(encoder_handle_t * henc, encoder_event_t event);
-void encoder_sw_callback(encoder_handle_t * henc, encoder_event_t event);
+bms_handle_t bms = {
+
+    .type = BMS_LIPO_TYPE,
+    .cell_cnt = 1,
+    .div = 2.0,
+    .v_ref = 3.3,
+};
+
+TIM_HandleTypeDef * tim_us;
+
+arm_status_t mode_remote = MODE_STATUS_DISARMED;
+
+void encoder_callback(encoder_handle_t * henc, encoder_event_t enc_event, encoder_event_t sw_event);
+void bms_callback(bms_handle_t * bms, bms_event_t event);
 static void condition_throttle(uint16_t throttle, uint16_t * shaped_throttle);
 static void
 shape_input(uint16_t x, uint16_t x_min, uint16_t x_max, uint16_t x_mid, float deadzone, float x_shaped_min, float x_shaped_max, float * x_shaped);
 static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * q_des);
 static void pos_to_euler_rates(joystick_t * joystick, float * pitch_rate, float * roll_rate, float * yaw_rate);
-static float map(float x, float in_min, float in_max, float out_min,
-                 float out_max); // convert from [in_min, in_max] to [out_min, out_max]
-static uint8_t compute_batt(uint16_t batt_lvl_adc);
+static float map(float x, float in_min, float in_max, float out_min, float out_max); // convert from [in_min, in_max] to [out_min, out_max]
 static void tune(joystick_t * joysticks, float * kp, float * ki, float * kd, uint32_t * last_tune, oled_active_tune_param_t * active_tune);
 
 void app_init(ADC_HandleTypeDef * hadc,
               DMA_HandleTypeDef * hdma,
               I2C_HandleTypeDef * hi2c,
               SPI_HandleTypeDef * hspi,
-              TIM_HandleTypeDef * htim,
-              TIM_HandleTypeDef * henc)
+              TIM_HandleTypeDef * htim_adc,
+              TIM_HandleTypeDef * henc,
+              TIM_HandleTypeDef * htim_us)
 {
     tx.hspi = hspi;
     oled.hi2c = hi2c;
     enc.htim = henc;
+    tim_us = htim_us;
 
+    /******************************************** Configure nRF24L01 ******************************************/
+    HAL_TIM_Base_Start(tim_us); // microsecond timer must be started for rf_init()
     rf_init(&tx);
-    ssd1306_init(&oled);
+    /**********************************************************************************************************/
 
+    /************************************** Configure battery management **************************************/
+    bms_init(&bms, bms_callback);
+    /**********************************************************************************************************/
+
+    /****************************************** Configure encoder *********************************************/
     encoder_init(&enc);
-    encoder_constrain(&enc, PAGE_1, PAGE_3);
-    encoder_set_pos_mode(&enc, ENCODER_POS_WRAP);
-    encoder_register_callback(&enc, encoder_callback);
-    encoder_register_sw_callback(&enc, encoder_sw_callback);
-
-    // enable ADC with DMA transfers
-    HAL_ADC_Start_DMA(hadc, (uint32_t *)samples, N_ADC_SAMPLES);
-
-    // start ADC conversions
-    HAL_TIM_Base_Start(htim); // 25Hz
+    encoder_constrain(&enc, PAGE_1, PAGE_3);           // set limits
+    encoder_set_pos_mode(&enc, ENCODER_POS_WRAP);      // wrap from PAGE_1 to PAGE_3
+    encoder_register_callback(&enc, encoder_callback); // set event callback function
 
     // start encoder
     HAL_TIM_Encoder_Start(henc, TIM_CHANNEL_ALL);
+    /**********************************************************************************************************/
 
+    /****************************************** Configure ADC + DMA *******************************************/
+    HAL_ADC_Start_DMA(hadc, (uint32_t *)samples, N_ADC_SAMPLES); // enable ADC with DMA transfers
+    HAL_TIM_Base_Start(htim_adc);                                // start ADC conversions (200 Hz)
+    /**********************************************************************************************************/
+
+    /***************************************** Enable and start OLED ******************************************/
+    ssd1306_init(&oled);
     ssd1306_clear(&oled);
     ssd1306_update(&oled);
-
-    // read previous kp, ki, kd values from non-volatile
+    /**********************************************************************************************************/
 }
 
 void app(void)
@@ -144,7 +164,7 @@ void app(void)
     uint8_t quad_batt_lvl = 0;
 
     uint32_t last_tune_update = 0;
-    oled_active_tune_param_t curr_tune = ACTIVE_TUNE_NONE;
+    oled_active_tune_param_t curr_tune_param = ACTIVE_TUNE_NONE;
 
     joystick_t joysticks;
 
@@ -155,7 +175,6 @@ void app(void)
         .q4 = 0,
     };
 
-    quad_arm_status_t mode = QUAD_STATUS_DISARMED;
     uint32_t last_mode_change = 0;
 
     while (1)
@@ -178,15 +197,14 @@ void app(void)
         // 5. write PID values to non-volatile memory
 
         // stay disarmed until throttle is pulled all the way down while encoder button is pressed
-        // move button press funciton to encoder library
         if (sw_state && page != PAGE_3 && joysticks.throttle > 3000 && HAL_GetTick() - last_mode_change > 500)
         {
-            if (mode == QUAD_STATUS_ARMED)
-                mode = QUAD_STATUS_DISARMED;
-            else if (mode == QUAD_STATUS_DISARMED)
-                mode = QUAD_STATUS_ARMED;
+            if (mode_remote == MODE_STATUS_ARMED)
+                mode_remote = MODE_STATUS_DISARMED;
+            else if (mode_remote == MODE_STATUS_DISARMED)
+                mode_remote = MODE_STATUS_ARMED;
 
-            curr_tune = ACTIVE_TUNE_NONE;
+            curr_tune_param = ACTIVE_TUNE_NONE;
             last_mode_change = HAL_GetTick();
         }
 
@@ -196,10 +214,10 @@ void app(void)
             memcpy((uint16_t *)&joysticks, (uint16_t *)samples, sizeof(joysticks));
 
             // tune mode
-            if (mode == QUAD_STATUS_DISARMED && page == PAGE_3)
+            if (mode_remote == MODE_STATUS_DISARMED && page == PAGE_3)
             {
                 // problem with tuning control
-                tune(&joysticks, &kp, &ki, &kd, &last_tune_update, &curr_tune);
+                tune(&joysticks, &kp, &ki, &kd, &last_tune_update, &curr_tune_param);
             }
 
             // map joystick positions to euler angle rates
@@ -218,10 +236,10 @@ void app(void)
             euler_rates_to_quat(roll_rate_rad, pitch_rate_rad, yaw_rate_rad, &q_des);
             // CDC_Transmit_FS((uint8_t *)&q_des, sizeof(q_des));
 
-            // adc level is between 2.1V and 1.875V
-            // make a library for this??? battery monitoring library --> bml
-            // include method for callbacks that will shut down system if battery too low
-            remote_batt_lvl = compute_batt(samples[4]);
+            float percent;
+            bms_update(&bms, (float)samples[4] / ADC_RES_CNT, &percent);
+
+            remote_batt_lvl = (uint8_t)percent;
 
             // if throttle < halfway, throttle = 0
             // otherwise throttle = throttle - 2048
@@ -230,13 +248,13 @@ void app(void)
             uint16_t shaped_throttle;
             condition_throttle(joysticks.throttle, &shaped_throttle);
 
-            uint16_t data[2] = { joysticks.throttle, shaped_throttle };
-            CDC_Transmit_FS((uint8_t *)&data, sizeof(data));
+            // uint16_t data[2] = { joysticks.throttle, shaped_throttle };
+            // CDC_Transmit_FS((uint8_t *)&data, sizeof(data));
 
             // instead of doing joysticks --> angles
             // do joysticks--> angle rates, then integrate and convert those into quaternion
 
-            uint8_t key = (mode == QUAD_STATUS_ARMED) ? ARMED_KEY : DISARMED_KEY;
+            uint8_t key = (mode_remote == MODE_STATUS_ARMED) ? ARMED_KEY : DISARMED_KEY;
 
             rf_packet_params_t pkt = {
                 .throttle = shaped_throttle,
@@ -258,7 +276,7 @@ void app(void)
 
             if (ack_len == sizeof(rf_ack_params_t))
             {
-                quad_batt_lvl = ack.rx_batt_lvl;
+                quad_batt_lvl = ack.quad_batt_lvl;
             }
 
             adc_dr = 0;
@@ -271,17 +289,18 @@ void app(void)
             .page = page,
             .rx_batt = quad_batt_lvl,
             .tx_batt = remote_batt_lvl,
-            .mode = mode,
+            .mode = mode_remote,
             .kp = kp,
             .ki = ki,
             .kd = kd,
-            .active_tune = curr_tune, // change to tune_parameter
+            .tuning_param = curr_tune_param,
         };
 
         oled_update(&oled, &oled_info);
     }
 }
 
+/************************************************* Interrupt Callbacks *****************************************************/
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef * hadc)
 {
     adc_dr = 1;
@@ -289,12 +308,14 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef * hadc)
 
 void HAL_I2C_MasterTxCpltCallback(I2C_HandleTypeDef * hi2c)
 {
+    // from ssd1306.h
     ssd1306_callback(hi2c);
 }
+/***************************************************************************************************************************/
 
-void encoder_callback(encoder_handle_t * henc, encoder_event_t event)
+void encoder_callback(encoder_handle_t * henc, encoder_event_t enc_event, encoder_event_t sw_event)
 {
-    switch (event)
+    switch (enc_event)
     {
     case ENCODER_EVENT_CW_TURN:
     case ENCODER_EVENT_CCW_TURN:
@@ -305,11 +326,8 @@ void encoder_callback(encoder_handle_t * henc, encoder_event_t event)
     case ENCODER_EVENT_SW_PRESS:
     default:
     }
-}
 
-void encoder_sw_callback(encoder_handle_t * henc, encoder_event_t event)
-{
-    switch (event)
+    switch (sw_event)
     {
     case ENCODER_EVENT_SW_RELEASE:
         sw_state = 0;
@@ -318,6 +336,15 @@ void encoder_sw_callback(encoder_handle_t * henc, encoder_event_t event)
         sw_state = 1;
         break;
     default:
+    }
+}
+
+void bms_callback(bms_handle_t * bms, bms_event_t event)
+{
+    // if battery is empty, go to failsafe mode
+    if (event == BMS_EVENT_CHARGE_EMPTY)
+    {
+        mode_remote = MODE_STATUS_FAILSAFE;
     }
 }
 
@@ -387,9 +414,7 @@ shape_input(uint16_t x, uint16_t x_min, uint16_t x_max, uint16_t x_mid, float de
 
 static void pos_to_euler_rates(joystick_t * joystick, float * pitch_rate, float * roll_rate, float * yaw_rate)
 {
-
     // calibrate()
-
     const uint16_t pitch_min = 400;
     const uint16_t roll_min = 400;
     const uint16_t yaw_min = 400;
@@ -418,17 +443,7 @@ static float map(float x, float in_min, float in_max, float out_min, float out_m
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
-static uint8_t compute_batt(uint16_t batt_lvl_adc)
-{
-    float adc_v = ((float)batt_lvl_adc / 4096.0) * 3.3;
-
-    float adc_min_v = BAT_MIN_V * 0.5;
-    float adc_max_v = BAT_MAX_V * 0.5;
-
-    return (uint8_t)map(adc_v, adc_min_v, adc_max_v, 0, 100.0);
-}
-
-static void tune(joystick_t * joysticks, float * kp, float * ki, float * kd, uint32_t * last_tune, oled_active_tune_param_t * active_tune)
+static void tune(joystick_t * joysticks, float * kp, float * ki, float * kd, uint32_t * last_tune, oled_active_tune_param_t * active_tune_parameter)
 {
     float ** new_k;
 
@@ -441,16 +456,16 @@ static void tune(joystick_t * joysticks, float * kp, float * ki, float * kd, uin
 
         if (joysticks->roll > 3000) // go to next parameter for tuning
         {
-            if (++(*active_tune) > ACTIVE_TUNE_KD)
-                *active_tune = ACTIVE_TUNE_NONE;
+            if (++(*active_tune_parameter) > ACTIVE_TUNE_KD)
+                *active_tune_parameter = ACTIVE_TUNE_NONE;
         }
         else if (joysticks->roll < 1000) // go to previous parameter for tuning
         {
-            if (--(*active_tune) < ACTIVE_TUNE_NONE)
-                *active_tune = ACTIVE_TUNE_KD;
+            if (--(*active_tune_parameter) < ACTIVE_TUNE_NONE)
+                *active_tune_parameter = ACTIVE_TUNE_KD;
         }
 
-        switch (*active_tune)
+        switch (*active_tune_parameter)
         {
         case ACTIVE_TUNE_KP:
             // new_k holds address of kp
@@ -481,4 +496,11 @@ static void tune(joystick_t * joysticks, float * kp, float * ki, float * kd, uin
         else if (**new_k < 0.0)
             **new_k = 0.0;
     }
+}
+
+void delay_us(uint32_t delay)
+{
+    __HAL_TIM_SET_COUNTER(tim_us, 0);
+    while (__HAL_TIM_GET_COUNTER(tim_us) < delay)
+        ;
 }
