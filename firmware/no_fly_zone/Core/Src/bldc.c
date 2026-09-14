@@ -64,10 +64,13 @@ status_t bldc_mix(bldc_handle_t * bldc, uint16_t throttle, float tau_x, float ta
     // tau_x requires left motors to match, right motors to match
     // tau_y requires front motors to match, back motors to match
     // tau_z requires diagonals to match
-    bldc->throttles.speed_fl = throttle + tau_x - tau_y + tau_z;
-    bldc->throttles.speed_fr = throttle - tau_x - tau_y - tau_z;
-    bldc->throttles.speed_bl = throttle + tau_x + tau_y - tau_z;
-    bldc->throttles.speed_br = throttle - tau_x + tau_y + tau_z;
+    // tau x if side to side filt
+    // tau y is forward/back tilt
+    // tau z is yaw
+    bldc->throttles.speed_fl = throttle + tau_x + tau_y + tau_z;
+    bldc->throttles.speed_fr = throttle - tau_x + tau_y - tau_z;
+    bldc->throttles.speed_bl = throttle + tau_x - tau_y - tau_z;
+    bldc->throttles.speed_br = throttle - tau_x - tau_y + tau_z;
 
     bldc_clamp(&bldc->throttles.speed_fl, DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE);
     bldc_clamp(&bldc->throttles.speed_fr, DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE);

@@ -29,7 +29,7 @@ static void compute_estimate(madgwick_state_t * state, quaternion_t q_grad);
 // 8a. The accelerometer data is normalized and compared with the predicted gravity vector
 // 8b. If they agree (small error), the orientation estimate is consistent with gravity
 // 9. The gradient is computed, which states the direction needed to move in order to reduce gravity error
-// 10. A correction based on the normalized gradient is subtracted from the gyroscope-derived quaternion rate of change (compute estimate())
+// 10. A correction based on the normalized gradient is subtracted from the gyroscope-derived quaternion rate of change (compute_estimate())
 // 11. Integrate the corrected quaternion rate of change of orientation to find new orientation quatnernion (compute_estimate())
 // 11. New quaternion is normalized such that is remains a valid unit quaternion (compute_estimate())
 // Summary
@@ -42,23 +42,26 @@ static void compute_estimate(madgwick_state_t * state, quaternion_t q_grad);
 
 void madgwick_init(madgwick_state_t * state)
 {
-    state->q_state_prev.q1 = 1.0;
-    state->q_state_prev.q2 = 0;
-    state->q_state_prev.q3 = 0;
-    state->q_state_prev.q4 = 0;
+    state->_q_state_prev.q1 = 1.0;
+    state->_q_state_prev.q2 = 0;
+    state->_q_state_prev.q3 = 0;
+    state->_q_state_prev.q4 = 0;
 }
 
-void madgwick_update(float a_x, float a_y, float a_z, float w_x, float w_y, float w_z, madgwick_state_t * state)
+void madgwick_update(float a_x, float a_y, float a_z, float w_x, float w_y, float w_z, float beta, float dt, madgwick_state_t * state)
 {
     float fg[3], JgT[12];
     quaternion_t q_grad;
+
+    state->_beta = beta;
+    state->_dt = dt;
 
     // convert sensor frames to body frames
     accel_to_body_frame(a_x, a_y, a_z, state);
     gyro_to_body_frame(w_x, w_y, w_z, state);
 
     // normalize acceleration
-    quat_normalize(&state->q_accel);
+    quat_normalize(&state->_q_accel);
 
     compute_err(state, fg);
     compute_jacobian_transpose(state, JgT);
@@ -67,30 +70,62 @@ void madgwick_update(float a_x, float a_y, float a_z, float w_x, float w_y, floa
     compute_estimate(state, q_grad);
 
     // update states
-    state->q_state_prev.q1 = state->q_state.q1;
-    state->q_state_prev.q2 = state->q_state.q2;
-    state->q_state_prev.q3 = state->q_state.q3;
-    state->q_state_prev.q4 = state->q_state.q4;
+    state->_q_state_prev.q1 = state->_q_state.q1;
+    state->_q_state_prev.q2 = state->_q_state.q2;
+    state->_q_state_prev.q3 = state->_q_state.q3;
+    state->_q_state_prev.q4 = state->_q_state.q4;
+}
+
+void madgwick_curr_to_des(madgwick_state_t * state, quaternion_t q_des, float k_att, float * w_x_err, float * w_y_err, float * w_z_err)
+{
+    // compute rotation needed to move from current orientation to desired orientation (AKA error)
+    quaternion_t q_state_conj, q_err;
+    quat_copy(state->_q_state, &q_state_conj);
+    quat_conjugate(&q_state_conj);
+    quat_mult(q_state_conj, q_des, &q_err);
+
+    // convert error to rate error
+    float sign = 1.0;
+    if (q_err.q1 < 0)
+        sign = -1.0;
+
+    // calculate 3 axis attitude error --> need more detail about this section
+    // body frame convention, not sensor frame
+    float e_x = 2.0 * sign * q_err.q2;
+    float e_y = 2.0 * sign * q_err.q3;
+    float e_z = 2.0 * sign * q_err.q4;
+
+    float w_x_des = e_x * k_att;
+    float w_y_des = e_y * k_att;
+    float w_z_des = e_z * k_att;
+
+    // clamp rates to certain range
+    // clamp(w_x_des, max_rate, min_rate)
+
+    // compute ew
+    *w_x_err = w_x_des - state->_q_gyro.q2;
+    *w_y_err = w_y_des - state->_q_gyro.q3;
+    *w_z_err = w_z_des - state->_q_gyro.q4;
 }
 
 static void accel_to_body_frame(float x, float y, float z, madgwick_state_t * state)
 {
     // align sensor coordinates to body frame coordinates
     // check these rotations line up correctly sign-wise
-    state->q_accel.q1 = 0;
-    state->q_accel.q2 = -y;
-    state->q_accel.q3 = -x;
-    state->q_accel.q4 = z;
+    state->_q_accel.q1 = 0;
+    state->_q_accel.q2 = -y;
+    state->_q_accel.q3 = -x;
+    state->_q_accel.q4 = z;
 }
 
 static void gyro_to_body_frame(float x_rad, float y_rad, float z_rad, madgwick_state_t * state)
 {
     // align sensor coordinates to body frame coordinates
     // check these rotations line up correctly sign-wise
-    state->q_gyro.q1 = 0;
-    state->q_gyro.q2 = y_rad;
-    state->q_gyro.q3 = x_rad;
-    state->q_gyro.q4 = -z_rad;
+    state->_q_gyro.q1 = 0;
+    state->_q_gyro.q2 = y_rad;
+    state->_q_gyro.q3 = x_rad;
+    state->_q_gyro.q4 = -z_rad;
 }
 
 static void compute_err(madgwick_state_t * state, float * fg)
@@ -98,9 +133,9 @@ static void compute_err(madgwick_state_t * state, float * fg)
     // compute f_g(q, s_a)
     // this is the error function: it calculates difference between predicted and measured state
     // the predicted state is everything in the equations but the subtraction of accelerometer quaternion
-    fg[0] = 2.0 * (state->q_state_prev.q2 * state->q_state_prev.q4 - state->q_state_prev.q1 * state->q_state_prev.q3) - state->q_accel.q2;
-    fg[1] = 2.0 * (state->q_state_prev.q1 * state->q_state_prev.q2 + state->q_state_prev.q3 * state->q_state_prev.q4) - state->q_accel.q3;
-    fg[2] = 2.0 * (0.5 - state->q_state_prev.q2 * state->q_state_prev.q2 - state->q_state_prev.q3 * state->q_state_prev.q3) - state->q_accel.q4;
+    fg[0] = 2.0 * (state->_q_state_prev.q2 * state->_q_state_prev.q4 - state->_q_state_prev.q1 * state->_q_state_prev.q3) - state->_q_accel.q2;
+    fg[1] = 2.0 * (state->_q_state_prev.q1 * state->_q_state_prev.q2 + state->_q_state_prev.q3 * state->_q_state_prev.q4) - state->_q_accel.q3;
+    fg[2] = 2.0 * (0.5 - state->_q_state_prev.q2 * state->_q_state_prev.q2 - state->_q_state_prev.q3 * state->_q_state_prev.q3) - state->_q_accel.q4;
 }
 
 static void compute_jacobian_transpose(madgwick_state_t * state, float * JgT)
@@ -112,15 +147,15 @@ static void compute_jacobian_transpose(madgwick_state_t * state, float * JgT)
     */
 
     // if quaternion slightly changes, how does error change?
-    JgT[0] = 2.0 * state->q_state_prev.q3;
-    JgT[1] = 2.0 * state->q_state_prev.q2;
+    JgT[0] = 2.0 * state->_q_state_prev.q3;
+    JgT[1] = 2.0 * state->_q_state_prev.q2;
     JgT[2] = 0;
-    JgT[3] = 2.0 * state->q_state_prev.q4;
-    JgT[4] = 2.0 * state->q_state_prev.q1;
-    JgT[5] = -4.0 * state->q_state_prev.q2;
-    JgT[6] = -2.0 * state->q_state_prev.q1;
+    JgT[3] = 2.0 * state->_q_state_prev.q4;
+    JgT[4] = 2.0 * state->_q_state_prev.q1;
+    JgT[5] = -4.0 * state->_q_state_prev.q2;
+    JgT[6] = -2.0 * state->_q_state_prev.q1;
     JgT[7] = JgT[3];
-    JgT[8] = -4.0 * state->q_state_prev.q3;
+    JgT[8] = -4.0 * state->_q_state_prev.q3;
     JgT[9] = JgT[1];
     JgT[10] = JgT[0];
     JgT[11] = 0;
@@ -129,9 +164,9 @@ static void compute_jacobian_transpose(madgwick_state_t * state, float * JgT)
 static void compute_gyro_dot(madgwick_state_t * state)
 {
     // compute quaternion derivative for gyro
-    // q_gyro_dot = 1/2 * q_state_prev * q_gyro
-    quat_mult(state->q_state_prev, state->q_gyro, &state->q_gyro_dot);
-    quat_mult_scalar(&state->q_gyro_dot, 0.5);
+    // _q_gyro_dot = 1/2 * _q_state_prev * _q_gyro
+    quat_mult(state->_q_state_prev, state->_q_gyro, &state->_q_gyro_dot);
+    quat_mult_scalar(&state->_q_gyro_dot, 0.5);
 }
 
 static void compute_gradient(madgwick_state_t * state, float * JgT, float * fg, quaternion_t * q_grad)
@@ -157,9 +192,9 @@ static void compute_estimate(madgwick_state_t * state, quaternion_t q_grad)
     // compute orientation estimation
     // q_t = q_t-1 + q_dot_t * dt
     quat_normalize(&q_grad);
-    quat_mult_scalar(&q_grad, state->beta);
-    quat_sub(state->q_gyro_dot, q_grad, &state->q_state_dot);
-    quat_mult_scalar(&state->q_state_dot, state->dt);
-    quat_add(state->q_state_prev, state->q_state_dot, &state->q_state);
-    quat_normalize(&state->q_state);
+    quat_mult_scalar(&q_grad, state->_beta);
+    quat_sub(state->_q_gyro_dot, q_grad, &state->_q_state_dot);
+    quat_mult_scalar(&state->_q_state_dot, state->_dt);
+    quat_add(state->_q_state_prev, state->_q_state_dot, &state->_q_state);
+    quat_normalize(&state->_q_state);
 }
