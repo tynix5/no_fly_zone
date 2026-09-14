@@ -6,21 +6,21 @@
 #include <math.h>
 #include <string.h>
 
-#include "nrf24.h"
+#include "bms.h"
 #include "encoder.h"
+#include "nrf24.h"
 #include "oled_helper.h"
 #include "quaternion.h"
 #include "rf_structs.h"
 #include "ssd1306.h"
-#include "bms.h"
 
-#define RF_TX_ADDR         0xE7E7E7E7
-#define RF_RX_ADDR         0xE7E7E7E7
+#define RF_TX_ADDR 0xE7E7E7E7
+#define RF_RX_ADDR 0xE7E7E7E7
 
-#define N_ADC_SAMPLES      5
-#define ADC_SAMP_RATE      200 // Hz
-#define ADC_SAMP_DT        (float)(1.0 / ADC_SAMP_RATE)
-#define ADC_RES_CNT        4096.0f
+#define N_ADC_SAMPLES 5
+#define ADC_SAMP_RATE 200 // Hz
+#define ADC_SAMP_DT   (float)(1.0 / ADC_SAMP_RATE)
+#define ADC_RES_CNT   4096.0f
 
 #define MAX_PITCH_RATE_DEG 360
 #define MIN_PITCH_RATE_DEG -360
@@ -29,11 +29,11 @@
 #define MAX_YAW_RATE_DEG   360
 #define MIN_YAW_RATE_DEG   -360
 
-#define ENC_UPDATE_T       100
+#define ENC_UPDATE_T 100
 
-#define OLED_RES_X         128
-#define OLED_RES_Y         64
-#define OLED_PAGES         (OLED_RES_Y / 8)
+#define OLED_RES_X 128
+#define OLED_RES_Y 64
+#define OLED_PAGES (OLED_RES_Y / 8)
 
 uint16_t samples[N_ADC_SAMPLES];
 
@@ -68,11 +68,12 @@ nrf_handle_t tx = {
     .payload_type = NRF_PAYLOAD_DYNAMIC,
     .ack = FEAT_ENABLE,
 
-    .nrf_irqs_t = {
-        .rx_dr = FEAT_DISABLE,
-        .tx_ds = FEAT_DISABLE,
-        .max_rt = FEAT_DISABLE,
-    },
+    .nrf_irqs_t =
+        {
+            .rx_dr = FEAT_DISABLE,
+            .tx_ds = FEAT_DISABLE,
+            .max_rt = FEAT_DISABLE,
+        },
 };
 
 ssd1306_handle_t oled = {
@@ -107,8 +108,7 @@ arm_status_t mode_remote = MODE_STATUS_DISARMED;
 void encoder_callback(encoder_handle_t * henc, encoder_event_t enc_event, encoder_event_t sw_event);
 void bms_callback(bms_handle_t * bms, bms_event_t event);
 static void condition_throttle(uint16_t throttle, uint16_t * shaped_throttle);
-static void
-shape_input(uint16_t x, uint16_t x_min, uint16_t x_max, uint16_t x_mid, float deadzone, float x_shaped_min, float x_shaped_max, float * x_shaped);
+static void shape_input(uint16_t x, uint16_t x_min, uint16_t x_max, uint16_t x_mid, float deadzone, float x_shaped_min, float x_shaped_max, float * x_shaped);
 static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * q_des);
 static void pos_to_euler_rates(joystick_t * joystick, float * pitch_rate, float * roll_rate, float * yaw_rate);
 static float map(float x, float in_min, float in_max, float out_min, float out_max); // convert from [in_min, in_max] to [out_min, out_max]
@@ -128,8 +128,10 @@ void app_init(ADC_HandleTypeDef * hadc,
     tim_us = htim_us;
 
     /******************************************** Configure nRF24L01 ******************************************/
-    HAL_TIM_Base_Start(tim_us); // microsecond timer must be started for rf_init()
+    HAL_TIM_Base_Start(tim_us);                                          // microsecond timer must be started for rf_init()
+
     rf_init(&tx);
+    rf_set_retransmit(&tx, NRF_RETRY_DELAY_1000, NRF_RETRY_CNT_DISABLE); // no retransmits
     /**********************************************************************************************************/
 
     /************************************** Configure battery management **************************************/
@@ -196,7 +198,8 @@ void app(void)
         // 4. send PID values over radio
         // 5. write PID values to non-volatile memory
 
-        // stay disarmed until throttle is pulled all the way down while encoder button is pressed
+        // stay disarmed until throttle is pulled all the way down while encoder
+        // button is pressed
         if (sw_state && page != PAGE_3 && joysticks.throttle > 3000 && HAL_GetTick() - last_mode_change > 500)
         {
             if (mode_remote == MODE_STATUS_ARMED)
@@ -231,8 +234,9 @@ void app(void)
 
             // convert angular rates to desired quaternion
             // this is an acrobatic mode of sorts
-            // if user wants quadcopter to return to level position after releasing sticks, do euler_to_quat()
-            // must match those in madgwick filter for quadcopter
+            // if user wants quadcopter to return to level position after releasing
+            // sticks, do euler_to_quat() must match those in madgwick filter for
+            // quadcopter
             euler_rates_to_quat(roll_rate_rad, pitch_rate_rad, yaw_rate_rad, &q_des);
             // CDC_Transmit_FS((uint8_t *)&q_des, sizeof(q_des));
 
@@ -252,7 +256,8 @@ void app(void)
             // CDC_Transmit_FS((uint8_t *)&data, sizeof(data));
 
             // instead of doing joysticks --> angles
-            // do joysticks--> angle rates, then integrate and convert those into quaternion
+            // do joysticks--> angle rates, then integrate and convert those into
+            // quaternion
 
             uint8_t key = (mode_remote == MODE_STATUS_ARMED) ? ARMED_KEY : DISARMED_KEY;
 
@@ -387,11 +392,11 @@ static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * 
     quat_normalize(q_des);
 }
 
-static void
-shape_input(uint16_t x, uint16_t x_min, uint16_t x_max, uint16_t x_mid, float deadzone, float x_shaped_min, float x_shaped_max, float * x_shaped)
+static void shape_input(uint16_t x, uint16_t x_min, uint16_t x_max, uint16_t x_mid, float deadzone, float x_shaped_min, float x_shaped_max, float * x_shaped)
 {
-    // transform input x in range [x_min, x_max] to [x_shaped_min, x_shaped_max] in a quadratic fashion
-    // small deviations from center of range result in smaller outputs, larger deviations result in larger swings
+    // transform input x in range [x_min, x_max] to [x_shaped_min, x_shaped_max]
+    // in a quadratic fashion small deviations from center of range result in
+    // smaller outputs, larger deviations result in larger swings
 
     // map input to [-1, 1] range
     if (x > x_mid)

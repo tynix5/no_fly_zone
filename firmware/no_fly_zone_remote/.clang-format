@@ -4,7 +4,11 @@ IndentWidth: 4
 TabWidth: 4
 UseTab: Never
 
-ColumnLimit: 150
+ColumnLimit: 175
+
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 2
 
 BreakBeforeBraces: Custom
 
@@ -14,18 +18,20 @@ BraceWrapping:
   AfterEnum: true
   AfterFunction: true
   AfterControlStatement: Always
-  AfterInitializerList: true
+  # AfterInitializerList: true
   BeforeElse: true
   BeforeCatch: true
 
 PointerAlignment: Middle
+
+ReflowComments: false
 
 # Function calls / parameters
 BinPackArguments: false
 BinPackParameters: false
 
 # Struct / array initializers
-Cpp11BracedListStyle: Block
+Cpp11BracedListStyle: false
 BinPackLongBracedList: false
 
 AlignConsecutiveAssignments:
@@ -36,10 +42,7 @@ AlignConsecutiveAssignments:
 AlignConsecutiveDeclarations: false
 
 # Align #define values
-AlignConsecutiveMacros:
-  Enabled: true
-  AcrossEmptyLines: true
-  AcrossComments: true
+AlignConsecutiveMacros: true
 
 SortIncludes: false
 
@@ -48,7 +51,3 @@ AllowShortIfStatementsOnASingleLine: Never
 AllowShortFunctionsOnASingleLine: None
 
 AllowShortCaseLabelsOnASingleLine: false
-
-AlignTrailingComments:
-  Kind: Always
-  OverEmptyLines: 2
