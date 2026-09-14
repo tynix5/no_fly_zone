@@ -4,5 +4,7 @@ firmware/no_fly_zone/Drivers
 firmware/no_fly_zone_remote/Drivers
 firmware/no_fly_zone/.vscode
 firmware/no_fly_zone_remote/.vscode
+firmware/no_fly_zone/.cache
+firmware/no_fly_zone_remote/.cache
 hardware/**/.history
 hardware/**/*backups
