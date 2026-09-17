@@ -3,6 +3,8 @@
 #include "main.h"
 #include "stm32f446xx.h"
 #include "stm32f4xx_hal.h"
+#include "stm32f4xx_hal_gpio.h"
+#include "stm32f4xx_hal_tim.h"
 #include "usbd_cdc_if.h"
 #include <stdio.h>
 
@@ -30,7 +32,10 @@
 
 #define ADC_RES_CNT 4096.0f
 
+uint32_t micros_get_tick();
+uint32_t millis_get_tick();
 void delay_us(uint32_t delay);
+void delay_ms(uint32_t delay);
 
 nrf_handle_t rx = {
 
@@ -38,7 +43,7 @@ nrf_handle_t rx = {
     .ce_pin = RF_CE_Pin,
     .cs_gpio = RF_CS_GPIO_Port,
     .cs_pin = RF_CS_Pin,
-    .delay_ms = HAL_Delay,
+    .delay_ms = delay_ms,
     .delay_us = delay_us,
 
     .this_addr = RF_RX_ADDR,
@@ -61,7 +66,7 @@ lps25_handle_t bar = {
 
     .cs_gpio = BAR_CS_GPIO_Port,
     .cs = BAR_CS_Pin,
-    .delay_ms = HAL_Delay,
+    .delay_ms = delay_ms,
 
     .odr = BAR_ODR_7HZ,
     .it = BAR_INT_DRDY,
@@ -77,7 +82,7 @@ lsm6_handle_t imu = {
 
     .cs_gpio = IMU_CS_GPIO_Port,
     .cs = IMU_CS_Pin,
-    .delay_ms = HAL_Delay,
+    .delay_ms = delay_ms,
 
     .gyro_handle_t =
         {
@@ -119,10 +124,11 @@ bldc_handle_t bldc;
 madgwick_state_t state;
 
 volatile uint8_t rf_dr = 0, imu_dr = 0, bar_dr = 0;
-uint32_t last_pkt_tick, last_imu_tick, last_bar_tick;
+volatile uint32_t last_pkt_tick_ms, last_bar_tick_ms, last_imu_tick_us;
+uint32_t this_imu_tick_us;
 
 IWDG_HandleTypeDef * iwdg;
-TIM_HandleTypeDef * tim_us;
+TIM_HandleTypeDef *tim_us_l, *tim_us_h;
 
 // sense_adc[0]: VBAT_SENSE
 // sense_adc[1]: CURR_SENSE
@@ -151,7 +157,8 @@ void app_init(ADC_HandleTypeDef * hadc,
               TIM_HandleTypeDef * htim2_motor,
               TIM_HandleTypeDef * htim_adc,
               TIM_HandleTypeDef * htim5_motor,
-              TIM_HandleTypeDef * htim_us,
+              TIM_HandleTypeDef * htim_us_l,
+              TIM_HandleTypeDef * htim_us_h,
               IWDG_HandleTypeDef * hiwdg)
 {
     // deselect all slaves at start
@@ -164,14 +171,16 @@ void app_init(ADC_HandleTypeDef * hadc,
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, GPIO_PIN_RESET);
 
-    tim_us = htim_us;
+    tim_us_h = htim_us_h;
+    tim_us_l = htim_us_l;
     rx.hspi = hspi_rf;
     bar.hspi = hspi_sensor;
     imu.hspi = hspi_sensor;
     iwdg = hiwdg;
 
     /********************************************* Configure nRF24l01 *****************************************/
-    HAL_TIM_Base_Start(htim_us); // start microsecond timer for rf_init()
+    HAL_TIM_Base_Start(htim_us_l); // start microsecond timer for rf_init()
+    HAL_TIM_Base_Start(htim_us_h); // start microsecond timer for rf_init()
     if (rf_init(&rx) == RF_SUCCESS)
         HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
     /**********************************************************************************************************/
@@ -186,7 +195,7 @@ void app_init(ADC_HandleTypeDef * hadc,
         HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_SET);
     /**********************************************************************************************************/
 
-    HAL_Delay(1000);
+    delay_ms(1000);
 
     HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
@@ -205,7 +214,8 @@ void app_init(ADC_HandleTypeDef * hadc,
     /**********************************************************************************************************/
 
     /************************************** Configure battery management **************************************/
-    bms_init(&bms, bms_callback);
+    // uncomment when battery is plugged in
+    // bms_init(&bms, bms_callback);
     /**********************************************************************************************************/
 
     /**************************************** Initiate Madgwick Filter ****************************************/
@@ -220,7 +230,8 @@ void app_init(ADC_HandleTypeDef * hadc,
 
     rf_listen_it(&rx);
 
-    last_pkt_tick = last_imu_tick = last_bar_tick = HAL_GetTick();
+    last_pkt_tick_ms = last_bar_tick_ms = millis_get_tick();
+    last_imu_tick_us = this_imu_tick_us = micros_get_tick();
 }
 
 void app(void)
@@ -241,7 +252,6 @@ void app(void)
         if (rf_dr)
         {
             pkt_cnt++;
-            last_pkt_tick = HAL_GetTick();
             construct_ack(&ack);
 
             rf_packet_params_t temp;
@@ -257,8 +267,6 @@ void app(void)
             // copy to a valid packet if available
             if (temp_size == sizeof(rf_packet_params_t))
             {
-                HAL_GPIO_TogglePin(STAT1_GPIO_Port, STAT1_Pin);
-
                 switch (temp.key)
                 {
                 case DISARMED_KEY:
@@ -287,54 +295,62 @@ void app(void)
                 }
             }
 
-            // HAL_GPIO_TogglePin(STAT1_GPIO_Port, STAT1_Pin);
-
             rf_dr = 0;
             rf_listen_it(&rx);
         }
-
-        // if quadcopter sensors or RF communication is disrupted, go into failsafe
-        // mode RF can only go into failsafe if previous communication has been
-        // established
-        uint32_t tick = HAL_GetTick();
-
-        if (tick - last_pkt_tick > RF_FAILSAFE_TIMEOUT_MS && pkt_cnt != 0)
-        {
-            mode_quad = MODE_STATUS_FAILSAFE;
-            failsafe_cause |= FAILSAFE_TYPE_RF;
-        }
-        if (tick - last_imu_tick > IMU_FAILSAFE_TIMEOUT_MS)
-        {
-            mode_quad = MODE_STATUS_FAILSAFE;
-            failsafe_cause |= FAILSAFE_TYPE_IMU;
-        }
-        // if (tick - last_bar_tick > BAR_FAILSAFE_TIMEOUT_MS)
-        // {
-        //     mode_quad = MODE_STATUS_FAILSAFE;
-        //     failsafe_cause |= FAILSAFE_TYPE_BAR;
-        // }
 
         if (imu_dr)
         {
             float a_x, a_y, a_z, w_x, w_y, w_z;
 
-            // use more accurate timer for delta_t estimation
             // update orientation estimation
             imu_read_gyro_radps(&imu, &w_x, &w_y, &w_z);
             imu_read_accel_mps2(&imu, &a_x, &a_y, &a_z);
-            madgwick_update(a_x, a_y, a_z, w_x, w_y, w_z, BETA, DELTA_T, &state);
 
-            HAL_GPIO_TogglePin(STAT2_GPIO_Port, STAT2_Pin);
+            float dt = (float)(this_imu_tick_us - last_imu_tick_us) / 1000000.0f; // convert sample delay from us to s
+            madgwick_update(a_x, a_y, a_z, w_x, w_y, w_z, BETA, dt, &state);
+
+            // char data[50];
+            // uint32_t len = sprintf(data, "%d, Diff = %d, Time(ms): %d\n", this_imu_tick_us, this_imu_tick_us - last_imu_tick_us, millis_get_tick());
+            // CDC_Transmit_FS((uint8_t *)data, len);
 
             // stream orientation over USB (for debugging)
-            // float data[] = { state.q_state.q1, state.q_state.q2, state.q_state.q3,
-            // state.q_state.q4 }; CDC_Transmit_FS((uint8_t *)data, sizeof(data));
-            last_imu_tick = HAL_GetTick();
+            // float data[] = { state._q_state.q1, state._q_state.q2, state._q_state.q3, state._q_state.q4 };
+            // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
+
+            last_imu_tick_us = this_imu_tick_us;
             imu_dr = 0;
         }
 
-        // calculate orientation (only if IMU working)
-        mode_quad = MODE_STATUS_ARMED; /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        if (bar_dr)
+        {
+            float hpa;
+            bar_read_press_hpa(&bar, &hpa);
+
+            bar_dr = 0;
+        }
+
+        // if quadcopter sensors or RF communication is disrupted, go into failsafe
+        // mode RF can only go into failsafe if previous communication has been
+        // established
+        uint32_t tick_ms = millis_get_tick();
+        uint32_t tick_us = micros_get_tick();
+
+        if (tick_ms - last_pkt_tick_ms > RF_FAILSAFE_TIMEOUT_MS && pkt_cnt != 0)
+        {
+            mode_quad = MODE_STATUS_FAILSAFE;
+            failsafe_cause |= FAILSAFE_TYPE_RF;
+        }
+        if (((tick_us - last_imu_tick_us) / 1000) > IMU_FAILSAFE_TIMEOUT_MS)
+        {
+            mode_quad = MODE_STATUS_FAILSAFE;
+            failsafe_cause |= FAILSAFE_TYPE_IMU;
+        }
+        if (tick_ms - last_bar_tick_ms > BAR_FAILSAFE_TIMEOUT_MS)
+        {
+            mode_quad = MODE_STATUS_FAILSAFE;
+            failsafe_cause |= FAILSAFE_TYPE_BAR;
+        }
 
         switch (mode_quad)
         {
@@ -345,7 +361,9 @@ void app(void)
             // uint16_t data[] = { 0, 0, 0, 0 };
             // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
+            HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
             HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_RESET);
             break;
 
         case MODE_STATUS_ARMED:
@@ -373,7 +391,10 @@ void app(void)
             uint16_t data[] = { bldc.throttles.speed_fl, bldc.throttles.speed_fr, bldc.throttles.speed_bl, bldc.throttles.speed_br };
             CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
-            HAL_GPIO_TogglePin(STAT3_GPIO_Port, STAT3_Pin);
+            HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_RESET);
+
             break;
 
         case MODE_STATUS_FAILSAFE:
@@ -382,21 +403,28 @@ void app(void)
             bldc_stop(&bldc);
             bldc_disable(&bldc);
 
+            HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_RESET);
+
             while (1)
             {
                 // disable IMU, barometer, RF?
                 // for initial versions, do not even attempt to recover from failure
                 // must reset watchdog though
+
+                if (failsafe_cause & FAILSAFE_TYPE_IMU)
+                    HAL_GPIO_TogglePin(STAT1_GPIO_Port, STAT1_Pin);
+
+                if (failsafe_cause & FAILSAFE_TYPE_BAR)
+                    HAL_GPIO_TogglePin(STAT2_GPIO_Port, STAT2_Pin);
+
+                if (failsafe_cause & FAILSAFE_TYPE_RF)
+                    HAL_GPIO_TogglePin(STAT3_GPIO_Port, STAT3_Pin);
+
                 HAL_IWDG_Refresh(iwdg);
-                HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
-                HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
-                HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_RESET);
-                HAL_Delay(100);
-                HAL_IWDG_Refresh(iwdg);
-                HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
-                HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
-                HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_SET);
-                HAL_Delay(100);
+
+                delay_ms(100);
             }
 
             break;
@@ -406,24 +434,26 @@ void app(void)
     }
 }
 
-/************************************************* Interrupt Callbacks
- * *****************************************************/
+/************************************************* Interrupt Callbacks *****************************************************/
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
     // RF IRQ on falling edge
     if (GPIO_Pin == RF_IRQ_Pin)
     {
         rf_dr = 1;
+        last_pkt_tick_ms = millis_get_tick();
     }
     // IMU IRQ on rising edge
     if (GPIO_Pin == IMU_IRQ1_Pin)
     {
         imu_dr = 1;
+        this_imu_tick_us = micros_get_tick();
     }
     // BAR IRQ on rising edge
     if (GPIO_Pin == BAR_IRQ_Pin)
     {
         bar_dr = 1;
+        last_bar_tick_ms = millis_get_tick();
     }
 }
 
@@ -448,9 +478,11 @@ void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef * htim)
 
 static void construct_ack(rf_ack_params_t * ack)
 {
-    float percent;
-    if (bms_update(&bms, (float)sense_adc[0] / ADC_RES_CNT, &percent) != STATUS_OK)
-        return;
+    // float percent;
+    // if (bms_update(&bms, (float)sense_adc[0] / ADC_RES_CNT, &percent) != STATUS_OK)
+    //     return;
+
+    float percent = 39.4;
 
     ack->quad_batt_lvl = (uint8_t)percent;
 
@@ -478,9 +510,35 @@ void bms_callback(bms_handle_t * bms, bms_event_t event)
     }
 }
 
+// chain 2 16-bit counters for a 32-bit counter
+uint32_t micros_get_tick()
+{
+    uint16_t tim_low, tim_high;
+
+    // check race conditions when doing non-atomic read over 2 registers
+    do
+    {
+        tim_high = __HAL_TIM_GET_COUNTER(tim_us_h);
+        tim_low = __HAL_TIM_GET_COUNTER(tim_us_l);
+
+    } while (__HAL_TIM_GET_COUNTER(tim_us_h) != tim_high);
+
+    return (uint32_t)(tim_high << 16) | tim_low;
+}
+
+uint32_t millis_get_tick()
+{
+    return micros_get_tick() / 1000;
+}
+
 void delay_us(uint32_t delay)
 {
-    __HAL_TIM_SET_COUNTER(tim_us, 0);
-    while (__HAL_TIM_GET_COUNTER(tim_us) < delay)
+    uint32_t start_us = micros_get_tick();
+    while (micros_get_tick() - start_us < delay)
         ;
+}
+
+void delay_ms(uint32_t delay)
+{
+    delay_us(delay * 1000);
 }

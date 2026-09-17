@@ -10,7 +10,8 @@ void app_init(ADC_HandleTypeDef * hadc,
               TIM_HandleTypeDef * htim2_motor,
               TIM_HandleTypeDef * htim_adc,
               TIM_HandleTypeDef * htim5_motor,
-              TIM_HandleTypeDef * htim_us,
+              TIM_HandleTypeDef * htim_us_l,
+              TIM_HandleTypeDef * htim_us_h,
               IWDG_HandleTypeDef * hiwdg);
 void app(void);
 
