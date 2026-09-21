@@ -63,8 +63,6 @@ void Error_Handler(void);
 #define VBAT_SENSE_GPIO_Port GPIOA
 #define CURR_SENSE_Pin GPIO_PIN_7
 #define CURR_SENSE_GPIO_Port GPIOA
-#define STAT3_Pin GPIO_PIN_2
-#define STAT3_GPIO_Port GPIOB
 #define BAR_CS_Pin GPIO_PIN_12
 #define BAR_CS_GPIO_Port GPIOB
 #define IMU_CS_Pin GPIO_PIN_6
@@ -89,6 +87,8 @@ void Error_Handler(void);
 #define RF_CS_GPIO_Port GPIOB
 #define RF_CE_Pin GPIO_PIN_7
 #define RF_CE_GPIO_Port GPIOB
+#define STAT3_Pin GPIO_PIN_8
+#define STAT3_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

@@ -121,7 +121,7 @@ int main(void)
     MX_TIM2_Init();
     MX_TIM5_Init();
     MX_USB_DEVICE_Init();
-    // MX_IWDG_Init();
+    //   MX_IWDG_Init();
     MX_TIM3_Init();
     MX_TIM1_Init();
     MX_TIM4_Init();
@@ -643,14 +643,14 @@ static void MX_GPIO_Init(void)
     __HAL_RCC_GPIOC_CLK_ENABLE();
 
     /*Configure GPIO pin Output Level */
-    HAL_GPIO_WritePin(GPIOB, STAT3_Pin | BAR_CS_Pin | STAT1_Pin | STAT2_Pin | RF_CS_Pin | RF_CE_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, BAR_CS_Pin | STAT1_Pin | STAT2_Pin | RF_CS_Pin | RF_CE_Pin | STAT3_Pin, GPIO_PIN_RESET);
 
     /*Configure GPIO pin Output Level */
     HAL_GPIO_WritePin(IMU_CS_GPIO_Port, IMU_CS_Pin, GPIO_PIN_RESET);
 
-    /*Configure GPIO pins : STAT3_Pin BAR_CS_Pin STAT1_Pin STAT2_Pin
-                           RF_CS_Pin RF_CE_Pin */
-    GPIO_InitStruct.Pin = STAT3_Pin | BAR_CS_Pin | STAT1_Pin | STAT2_Pin | RF_CS_Pin | RF_CE_Pin;
+    /*Configure GPIO pins : BAR_CS_Pin STAT1_Pin STAT2_Pin RF_CS_Pin
+                           RF_CE_Pin STAT3_Pin */
+    GPIO_InitStruct.Pin = BAR_CS_Pin | STAT1_Pin | STAT2_Pin | RF_CS_Pin | RF_CE_Pin | STAT3_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
