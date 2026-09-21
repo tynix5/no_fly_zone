@@ -2,6 +2,7 @@
 #include "main.h"
 #include "stm32l432xx.h"
 #include "stm32l4xx_hal.h"
+#include "stm32l4xx_hal_gpio.h"
 #include "usbd_cdc_if.h"
 #include <math.h>
 #include <string.h>
@@ -282,6 +283,7 @@ void app(void)
             if (ack_len == sizeof(rf_ack_params_t))
             {
                 quad_batt_lvl = ack.quad_batt_lvl;
+                HAL_GPIO_TogglePin(USER_LED_GPIO_Port, USER_LED_Pin);
             }
 
             adc_dr = 0;

@@ -11,8 +11,8 @@ import numpy as np
 # Serial configuration
 # ==========================
 
-PORT = "COM8"
-# PORT = "COM7"         # this is for no_fly_zone
+# PORT = "COM8"
+PORT = "COM9"         # this is for no_fly_zone
 BAUD = 115200
 
 ser = serial.Serial(PORT, BAUD, timeout=0)

@@ -5,6 +5,26 @@ Software
 4. Change universal return type to status_t
 5. Change all structs *params to *_handle_t
 6. Follow conventions.md
+7. Rename all private variables in struct starting with _
 
-KiCAD
-1. Upgrade to smaller board with same components? potentially remove barometer
+no_fly_zone_remote
+1. how to speed up loop time
+2. add handling if not receiving ack packets
+3. add ssd1306_busy() function and do not attempt to create oled buffer if busy
+
+no_fly_zone
+Note. worst case scenario loop time is below 200us
+1. Determine tau_z direction based on motor placement/direction
+2. attempt recovery for failure to init
+3. place torque commands into matrix for cleaner math
+4. test to see why data is being sent faster than 200Hz?
+
+stm32_lib
+1. check for null pointers in delay_ms and delay_us (nrf)
+2. dynamic memory allocation for dshot?
+4. add comments to all libraries
+5. clean up encoder implementation --> messy, hard to read
+
+Hardware
+1. Determine and set motor CW/CCW directions
+2. charge battery and verify voltage on resistor divider
