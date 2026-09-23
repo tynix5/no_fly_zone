@@ -97,8 +97,9 @@ bms_handle_t bms = {
 
     .type = BMS_LIPO_TYPE,
     .cell_cnt = 1,
-    .div = 2.0,
-    .v_ref = 3.3,
+    .div = 2.005,     // found by measuring resistor divider network
+    .v_ref = 3.33,    // exact measurement
+    .v_offset = 0.13, // measured
 };
 
 TIM_HandleTypeDef * tim_us;
