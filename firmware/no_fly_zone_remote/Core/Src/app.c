@@ -141,9 +141,9 @@ void app_init(ADC_HandleTypeDef * hadc,
 
     /****************************************** Configure encoder *********************************************/
     encoder_init(&enc);
-    encoder_constrain(&enc, PAGE_1, PAGE_3);           // set limits
-    encoder_set_pos_mode(&enc, ENCODER_POS_WRAP);      // wrap from PAGE_1 to PAGE_3
-    encoder_register_callback(&enc, encoder_callback); // set event callback function
+    encoder_constrain(&enc, PAGE_BATT_LVL, PAGE_TUNE_PID); // set limits
+    encoder_set_pos_mode(&enc, ENCODER_POS_WRAP);          // wrap from PAGE_BATT_LVL to PAGE_TUNE_PID
+    encoder_register_callback(&enc, encoder_callback);     // set event callback function
 
     // start encoder
     HAL_TIM_Encoder_Start(henc, TIM_CHANNEL_ALL);
@@ -201,7 +201,7 @@ void app(void)
 
         // stay disarmed until throttle is pulled all the way down while encoder
         // button is pressed
-        if (sw_state && page != PAGE_3 && joysticks.throttle > 3000 && HAL_GetTick() - last_mode_change > 500)
+        if (sw_state && page != PAGE_TUNE_PID && joysticks.throttle > 3000 && HAL_GetTick() - last_mode_change > 500)
         {
             if (mode_remote == MODE_STATUS_ARMED)
                 mode_remote = MODE_STATUS_DISARMED;
@@ -218,27 +218,26 @@ void app(void)
             memcpy((uint16_t *)&joysticks, (uint16_t *)samples, sizeof(joysticks));
 
             // tune mode
-            if (mode_remote == MODE_STATUS_DISARMED && page == PAGE_3)
+            if (mode_remote == MODE_STATUS_DISARMED && page == PAGE_TUNE_PID)
             {
-                // problem with tuning control
                 tune(&joysticks, &kp, &ki, &kd, &last_tune_update, &curr_tune_param);
             }
 
             // map joystick positions to euler angle rates
-            float pitch_rate_deg, roll_rate_deg, yaw_rate_deg;
-            pos_to_euler_rates(&joysticks, &pitch_rate_deg, &roll_rate_deg, &yaw_rate_deg);
+            float pitch_rate_dps, roll_rate_dps, yaw_rate_dps;
+            pos_to_euler_rates(&joysticks, &pitch_rate_dps, &roll_rate_dps, &yaw_rate_dps);
 
-            // convert to radians
-            float pitch_rate_rad = pitch_rate_deg * M_PI / 180.0;
-            float roll_rate_rad = roll_rate_deg * M_PI / 180.0;
-            float yaw_rate_rad = yaw_rate_deg * M_PI / 180.0;
+            // convert to radians per second
+            float pitch_rate_rps = pitch_rate_dps * M_PI / 180.0;
+            float roll_rate_rps = roll_rate_dps * M_PI / 180.0;
+            float yaw_rate_rps = yaw_rate_dps * M_PI / 180.0;
 
             // convert angular rates to desired quaternion
             // this is an acrobatic mode of sorts
             // if user wants quadcopter to return to level position after releasing
             // sticks, do euler_to_quat() must match those in madgwick filter for
             // quadcopter
-            euler_rates_to_quat(roll_rate_rad, pitch_rate_rad, yaw_rate_rad, &q_des);
+            euler_rates_to_quat(roll_rate_rps, pitch_rate_rps, yaw_rate_rps, &q_des);
             // CDC_Transmit_FS((uint8_t *)&q_des, sizeof(q_des));
 
             float percent;
@@ -260,7 +259,20 @@ void app(void)
             // do joysticks--> angle rates, then integrate and convert those into
             // quaternion
 
-            uint8_t key = (mode_remote == MODE_STATUS_ARMED) ? ARMED_KEY : DISARMED_KEY;
+            uint8_t key;
+
+            switch (mode_remote)
+            {
+            case MODE_STATUS_DISARMED:
+                key = DISARMED_KEY;
+                break;
+            case MODE_STATUS_ARMED:
+                key = ARMED_KEY;
+                break;
+            case MODE_STATUS_FAILSAFE:
+            default:
+                key = FAILSAFE_KEY;
+            }
 
             rf_packet_params_t pkt = {
                 .throttle = shaped_throttle,
@@ -396,7 +408,7 @@ static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * 
 static void shape_input(uint16_t x, uint16_t x_min, uint16_t x_max, uint16_t x_mid, float deadzone, float x_shaped_min, float x_shaped_max, float * x_shaped)
 {
     // transform input x in range [x_min, x_max] to [x_shaped_min, x_shaped_max]
-    // in a quadratic fashion small deviations from center of range result in
+    // in a quadratic fashion. Small deviations from center of range result in
     // smaller outputs, larger deviations result in larger swings
 
     // map input to [-1, 1] range

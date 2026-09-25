@@ -4,13 +4,12 @@
 #include <math.h>
 #include "ssd1306.h"
 
-static const uint8_t battery[24 * 10] = { 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1,
-                                          1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-                                          1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0,
-                                          0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-                                          1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0,
-                                          0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
-                                          1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
+static const uint8_t battery[24 * 10] = { 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                          1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+                                          1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+                                          1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+                                          1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+                                          1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
 
 void oled_update(ssd1306_handle_t * holed, oled_params_t * params)
 {
@@ -18,15 +17,15 @@ void oled_update(ssd1306_handle_t * holed, oled_params_t * params)
     oled_show_lock(holed, params->mode);
     oled_show_page(holed, params->page);
 
-    if (params->page == PAGE_1)
+    if (params->page == PAGE_BATT_LVL)
     {
         oled_show_battery(holed, params->tx_batt, params->rx_batt);
     }
-    else if (params->page == PAGE_2)
+    else if (params->page == PAGE_JOYSTICK)
     {
         oled_show_joysticks(holed, params->joysticks);
     }
-    else if (params->page == PAGE_3)
+    else if (params->page == PAGE_TUNE_PID)
     {
         oled_show_pid(holed, params->kp, params->ki, params->kd, params->tuning_param);
     }
@@ -36,19 +35,19 @@ void oled_update(ssd1306_handle_t * holed, oled_params_t * params)
 
 void oled_show_page(ssd1306_handle_t * holed, oled_pages_t page)
 {
-    if (page == PAGE_1)
+    if (page == PAGE_BATT_LVL)
     {
         ssd1306_draw_filled_circle(holed, 48, 58, 4);
         ssd1306_draw_filled_circle(holed, 64, 58, 2);
         ssd1306_draw_filled_circle(holed, 80, 58, 2);
     }
-    else if (page == PAGE_2)
+    else if (page == PAGE_JOYSTICK)
     {
         ssd1306_draw_filled_circle(holed, 48, 58, 2);
         ssd1306_draw_filled_circle(holed, 64, 58, 4);
         ssd1306_draw_filled_circle(holed, 80, 58, 2);
     }
-    else if (page == PAGE_3)
+    else if (page == PAGE_TUNE_PID)
     {
         ssd1306_draw_filled_circle(holed, 48, 58, 2);
         ssd1306_draw_filled_circle(holed, 64, 58, 2);
@@ -101,11 +100,8 @@ void oled_show_battery(ssd1306_handle_t * holed, uint8_t tx_batt, uint8_t rx_bat
     ssd1306_write_str(holed, 20, 20, percent);
 
     // draw "full" battery portions for quadcopter
-    ssd1306_draw_filled_rect(holed,
-                             holed->res_x - 1 - batt_body_width - batt_body_start_x,
-                             batt_body_start_y + batt_body_height - rx_batt_fullness,
-                             batt_body_width,
-                             rx_batt_fullness);
+    ssd1306_draw_filled_rect(
+        holed, holed->res_x - 1 - batt_body_width - batt_body_start_x, batt_body_start_y + batt_body_height - rx_batt_fullness, batt_body_width, rx_batt_fullness);
     snprintf(percent, sizeof(percent), "%3d%%", rx_batt);
     ssd1306_write_str(holed, 77, 20, percent);
 }

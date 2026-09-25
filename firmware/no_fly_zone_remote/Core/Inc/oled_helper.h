@@ -8,9 +8,9 @@
 
 typedef enum : int32_t
 {
-    PAGE_1 = 0, // RX, TX battery levels
-    PAGE_2,     // joystick locations
-    PAGE_3      // PID values
+    PAGE_BATT_LVL = 0, // RX, TX battery levels
+    PAGE_JOYSTICK,     // joystick locations
+    PAGE_TUNE_PID      // PID values
 } oled_pages_t;
 
 typedef enum : int32_t
