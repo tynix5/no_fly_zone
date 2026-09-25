@@ -117,7 +117,7 @@ lsm6_handle_t imu = {
 bms_handle_t bms = {
     .type = BMS_LIPO_TYPE,
     .cell_cnt = 4,
-    .div = 6, // ? make sure
+    .div = 6,
     .v_ref = 3.3,
 };
 
