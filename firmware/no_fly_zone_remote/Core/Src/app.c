@@ -41,7 +41,7 @@ uint16_t samples[N_ADC_SAMPLES];
 uint8_t oled_buff[OLED_RES_X * OLED_PAGES];
 uint8_t tx_buff[OLED_RES_X * OLED_PAGES + 13];
 
-oled_pages_t page = PAGE_1;
+oled_pages_t page = PAGE_BATT_LVL;
 uint8_t sw_state = 0;
 
 volatile uint8_t adc_dr = 0;
