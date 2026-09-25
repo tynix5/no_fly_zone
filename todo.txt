@@ -1,16 +1,10 @@
-Software
-1. Test GPS
-2. Modify all libraries to separate API calls from physical layer calls
-3. Add functionality for DMA, polling/blocking, EXTI, etc to libraries
-4. Change universal return type to status_t
-5. Change all structs *params to *_handle_t
-6. Follow conventions.md
-7. Rename all private variables in struct starting with _
-
 no_fly_zone_remote
 1. how to speed up loop time
 2. add handling if not receiving ack packets
 3. add ssd1306_busy() function and do not attempt to create oled buffer if busy
+4. add watchdog
+5. add delay_ms and get_ms_tick replacing HAL_GetTick() (make sure timer is 32-bits)
+6. add a joystick tuning page (page 2?)
 
 no_fly_zone
 Note. worst case scenario loop time is below 200us
@@ -22,13 +16,31 @@ Note. worst case scenario loop time is below 200us
 stm32_lib
 1. check for null pointers in delay_ms and delay_us (nrf)
 2. dynamic memory allocation for dshot?
-4. add comments to all libraries
-5. clean up encoder implementation --> messy, hard to read
+3. add comments to all libraries
+4. clean up encoder implementation --> messy, hard to read
+5. make public
+6. Modify all libraries to separate API calls from physical layer calls
+7. Add functionality for DMA, polling/blocking, EXTI, etc to libraries
+8. Change universal return type to status_t
+9. Change all structs *params to *_handle_t
+10. Rename all private variables in struct starting with _
+11. determine whether to use dynamic allocation or allow user to give presized array for pointers for buffers
+12. change all functions to have form part_function() instead of genericName_function()
+13. add input output functionality comments to all functions
+14. specific enums instead of generic
+15. user owns memory and passes it to struct
+16. use const as much as possible
+17. update comments on function input/output
+18. static asserts
+19. static size config for dshot
+20. stdbool.h for Boolean
+21. check for init in functions 
+22. units in variable names
 
 Hardware
 1. Determine and set motor CW/CCW directions
-2. charge battery and verify voltage on resistor divider
+2. Verify VBAT_SENSE and CURR_SENSE ranges on test board
 
 Github
 1. Add BOM for both remote and flight controller
-2. make stm32_lib public
+2. Add more detail and pictures to READMEs
