@@ -7,6 +7,7 @@
 #include "stm32f4xx_hal_tim.h"
 #include "usbd_cdc_if.h"
 #include <stdio.h>
+#include <stdbool.h>
 
 #include "bldc.h"
 #include "bms.h"
@@ -243,7 +244,7 @@ void app(void)
 
     const float k_att = 10.0;
 
-    uint8_t has_been_disarmed = 0;
+    bool has_been_disarmed = 0;
 
     while (1)
     {
@@ -271,7 +272,7 @@ void app(void)
                 {
                 case DISARMED_KEY:
                     memcpy((uint8_t *)&pkt, (uint8_t *)&temp, sizeof(rf_packet_params_t));
-                    has_been_disarmed = 1;
+                    has_been_disarmed = true;
                     // do not go into disarm mode if something has failed
                     if (mode_quad != MODE_STATUS_FAILSAFE)
                         mode_quad = MODE_STATUS_DISARMED;
