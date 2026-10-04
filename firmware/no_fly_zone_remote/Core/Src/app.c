@@ -1,7 +1,11 @@
 #include "app.h"
+#include "generic_types.h"
 #include "main.h"
+#include "stm32_hal_legacy.h"
 #include "stm32l432xx.h"
 #include "stm32l4xx_hal.h"
+#include "stm32l4xx_hal_gpio.h"
+#include "stm32l4xx_hal_tim.h"
 #include "usbd_cdc_if.h"
 #include <math.h>
 #include <string.h>
@@ -21,6 +25,8 @@
 #define ADC_SAMP_RATE 200 // Hz
 #define ADC_SAMP_DT   (float)(1.0 / ADC_SAMP_RATE)
 #define ADC_RES_CNT   4096.0f
+
+#define OLED_UPDATE_T 50
 
 #define MAX_PITCH_RATE_DEG 360
 #define MIN_PITCH_RATE_DEG -360
@@ -47,10 +53,13 @@ uint8_t sw_state = 0;
 volatile uint8_t adc_dr = 0;
 float kp = 0, ki = 0, kd = 0;
 
-// nRF24L01 parameters, should match receiver params
 void delay_us(uint32_t delay);
+void delay_ms(uint32_t delay);
+uint32_t micros_get_tick();
+uint32_t millis_get_tick();
 
-nrf_handle_t tx = {
+// nRF24L01 parameters, should match receiver params
+nrf24_handle_t tx = {
 
     .ce_gpio = RF_CE_GPIO_Port,
     .ce_pin = RF_CE_Pin,
@@ -59,21 +68,24 @@ nrf_handle_t tx = {
     .delay_ms = HAL_Delay,
     .delay_us = delay_us,
 
-    .this_addr = RF_RX_ADDR,
-    .node_addr = RF_TX_ADDR,
-
-    .power_level = NRF_TX_PWR_0DBM,
-    .data_rate = NRF_DATARATE_2MBPS,
+    .power_level = NRF24_TX_PWR_0DBM,
+    .data_rate = NRF24_DATARATE_2MBPS,
     .freq_ch = 2,
-    .payload_type = NRF_PAYLOAD_DYNAMIC,
-    .ack = FEAT_ENABLE,
 
-    .nrf_irqs_t =
+    .nrf24_irqs_t =
         {
-            .rx_dr = FEAT_DISABLE,
-            .tx_ds = FEAT_DISABLE,
-            .max_rt = FEAT_DISABLE,
+            .rx_dr_en = false,
+            .tx_ds_en = false,
+            .max_rt_en = false,
         },
+};
+
+nrf24_pipe_t ack_pipe = {
+
+    .address = RF_RX_ADDR,
+    .payload_type = NRF24_PAYLOAD_DYNAMIC,
+    .ack = NRF24_AUTO_ACK_PAYLOAD,
+    .num = NRF24_PIPE0,
 };
 
 ssd1306_handle_t oled = {
@@ -102,7 +114,8 @@ bms_handle_t bms = {
     .v_offset = 0.13, // measured
 };
 
-TIM_HandleTypeDef * tim_us;
+TIM_HandleTypeDef * tim_us_l;
+uint16_t tim_us_cnt_h;
 
 arm_status_t mode_remote = MODE_STATUS_DISARMED;
 
@@ -121,18 +134,21 @@ void app_init(ADC_HandleTypeDef * hadc,
               SPI_HandleTypeDef * hspi,
               TIM_HandleTypeDef * htim_adc,
               TIM_HandleTypeDef * henc,
-              TIM_HandleTypeDef * htim_us)
+              TIM_HandleTypeDef * htim_us_l)
 {
     tx.hspi = hspi;
     oled.hi2c = hi2c;
     enc.htim = henc;
-    tim_us = htim_us;
+    tim_us_l = htim_us_l;
 
     /******************************************** Configure nRF24L01 ******************************************/
-    HAL_TIM_Base_Start(tim_us);                                          // microsecond timer must be started for rf_init()
+    // microsecond timer must be started for rf_init()
+    HAL_TIM_Base_Start_IT(tim_us_l);
 
-    rf_init(&tx);
-    rf_set_retransmit(&tx, NRF_RETRY_DELAY_1000, NRF_RETRY_CNT_DISABLE); // no retransmits
+    nrf24_init(&tx);
+    nrf24_set_retransmit(&tx, NRF24_RETRY_DELAY_1000, NRF24_RETRY_CNT_DISABLE); // no retransmits
+    nrf24_open_rx_pipe(&tx, &ack_pipe);                                         // open RX pipe on 0
+    nrf24_open_tx_pipe(&tx, RF_TX_ADDR);                                        // match TX with RX for auto acks
     /**********************************************************************************************************/
 
     /************************************** Configure battery management **************************************/
@@ -180,6 +196,10 @@ void app(void)
 
     uint32_t last_mode_change = 0;
 
+    uint32_t last_tick = 0;
+
+    uint32_t last_oled_tick_ms = 0;
+
     while (1)
     {
         // to arm, pull throttle all the way down and press encoder
@@ -214,6 +234,18 @@ void app(void)
 
         if (adc_dr)
         {
+            adc_dr = 0;
+
+            uint32_t this_tick = micros_get_tick();
+            uint16_t low = __HAL_TIM_GET_COUNTER(tim_us_l);
+            uint16_t high = tim_us_cnt_h;
+            char buff[100];
+            uint32_t len;
+            uint32_t dt = this_tick - last_tick;
+            len = sprintf(buff, "t: %d\t dt: %d\tlow: %d\thigh: %d\n", this_tick, dt, low, high);
+            CDC_Transmit_FS(buff, len);
+            last_tick = this_tick;
+
             // convert joysticks to euler angles and then quaternions
             memcpy((uint16_t *)&joysticks, (uint16_t *)samples, sizeof(joysticks));
 
@@ -290,14 +322,17 @@ void app(void)
             rf_ack_params_t ack;
             uint8_t ack_len;
 
-            rf_send(&tx, (uint8_t *)&pkt, sizeof(rf_packet_params_t), (uint8_t *)&ack, &ack_len);
+            nrf24_send(&tx, (uint8_t *)&pkt, sizeof(rf_packet_params_t), true, (uint8_t *)&ack, &ack_len);
 
             if (ack_len == sizeof(rf_ack_params_t))
             {
                 quad_batt_lvl = ack.quad_batt_lvl;
-            }
+                HAL_GPIO_TogglePin(USER_LED_GPIO_Port, USER_LED_Pin);
 
-            adc_dr = 0;
+                // char buff[20];
+                // uint8_t l = sprintf(buff, "%d\n", ticks);
+                // CDC_Transmit_FS(buff, l);
+            }
         }
 
         encoder_update(&enc);
@@ -314,7 +349,12 @@ void app(void)
             .tuning_param = curr_tune_param,
         };
 
-        oled_update(&oled, &oled_info);
+        uint32_t this_tick_ms = millis_get_tick();
+        if (this_tick_ms - last_oled_tick_ms >= OLED_UPDATE_T)
+        {
+            oled_update(&oled, &oled_info);
+            last_oled_tick_ms = this_tick_ms;
+        }
     }
 }
 
@@ -518,7 +558,38 @@ static void tune(joystick_t * joysticks, float * kp, float * ki, float * kd, uin
 
 void delay_us(uint32_t delay)
 {
-    __HAL_TIM_SET_COUNTER(tim_us, 0);
-    while (__HAL_TIM_GET_COUNTER(tim_us) < delay)
+    uint32_t start_us = micros_get_tick();
+    while (micros_get_tick() - start_us < delay)
         ;
+}
+
+void delay_ms(uint32_t delay)
+{
+    delay_us(delay * 1000);
+}
+
+uint32_t micros_get_tick()
+{
+    uint16_t tim_low, tim_high;
+
+    // check race conditions when doing non-atomic read over 2 registers
+    do
+    {
+        tim_high = tim_us_cnt_h;
+        tim_low = __HAL_TIM_GET_COUNTER(tim_us_l);
+
+    } while (tim_us_cnt_h != tim_high);
+
+    return ((uint32_t)tim_high << 16) | (uint32_t)tim_low;
+}
+
+uint32_t millis_get_tick()
+{
+    return micros_get_tick() / 1000;
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef * htim)
+{
+    if (htim == tim_us_l)
+        tim_us_cnt_h++;
 }

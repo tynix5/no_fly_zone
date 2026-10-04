@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "stm32l4xx_hal.h"
+#include "stm32l4xx_hal_tim.h"
 
 typedef struct
 {
@@ -19,7 +20,7 @@ void app_init(ADC_HandleTypeDef * hadc,
               SPI_HandleTypeDef * hspi,
               TIM_HandleTypeDef * htim_adc,
               TIM_HandleTypeDef * henc,
-              TIM_HandleTypeDef * htim_us);
+              TIM_HandleTypeDef * htim_us_l);
 void app(void);
 
 #endif
