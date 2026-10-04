@@ -38,7 +38,7 @@ uint32_t millis_get_tick();
 void delay_us(uint32_t delay);
 void delay_ms(uint32_t delay);
 
-nrf_handle_t rx = {
+nrf24_handle_t rx = {
 
     .ce_gpio = RF_CE_GPIO_Port,
     .ce_pin = RF_CE_Pin,
@@ -47,20 +47,23 @@ nrf_handle_t rx = {
     .delay_ms = delay_ms,
     .delay_us = delay_us,
 
-    .this_addr = RF_RX_ADDR,
-    .node_addr = RF_TX_ADDR,
-
-    .power_level = NRF_TX_PWR_0DBM,
-    .data_rate = NRF_DATARATE_2MBPS,
+    .power_level = NRF24_TX_PWR_0DBM,
+    .data_rate = NRF24_DATARATE_2MBPS,
     .freq_ch = 2,
-    .payload_type = NRF_PAYLOAD_DYNAMIC,
-    .ack = FEAT_ENABLE,
 
-    .nrf_irqs_t = {
-        .rx_dr = FEAT_ENABLE,
-        .tx_ds = FEAT_DISABLE,
-        .max_rt = FEAT_DISABLE,
+    .nrf24_irqs_t = {
+        .rx_dr_en = true,
+        .tx_ds_en = false,
+        .max_rt_en = false,
     },
+};
+
+nrf24_pipe_t rx_pipe = {
+
+    .address = RF_RX_ADDR,
+    .ack = NRF24_AUTO_ACK_PAYLOAD,
+    .payload_type = NRF24_PAYLOAD_DYNAMIC,
+    .num = NRF24_PIPE0,
 };
 
 lps25_handle_t bar = {
@@ -85,33 +88,29 @@ lsm6_handle_t imu = {
     .cs = IMU_CS_Pin,
     .delay_ms = delay_ms,
 
-    .gyro_handle_t =
-        {
-            .odr = IMU_ODR_G_1_66KHZ,
-            .fs = IMU_FS_G_1000DPS,
-            .filt = IMU_HPF_EN,
-            .cutoff = IMU_HP_G_16MILHZ,
-        },
+    .gyro_handle_t = {
+        .odr = IMU_ODR_G_1_66KHZ,
+        .fs = IMU_FS_G_1000DPS,
+        .filt = IMU_HPF_EN,
+        .cutoff = IMU_HP_G_16MILHZ,
+    },
 
-    .accel_handle_t =
-        {
-            .odr = IMU_ODR_XL_1_66KHZ,
-            .fs = IMU_FS_XL_8G,
-            .filt = IMU_LPF_EN,
-        },
+    .accel_handle_t = {
+        .odr = IMU_ODR_XL_1_66KHZ,
+        .fs = IMU_FS_XL_8G,
+        .filt = IMU_LPF_EN,
+    },
 
-    .fifo_handle_t =
-        {
-            .mode = IMU_FIFO_BYPASS,
-            .odr = IMU_ODR_FIFO_DISABLE,
-        },
+    .fifo_handle_t = {
+        .mode = IMU_FIFO_BYPASS,
+        .odr = IMU_ODR_FIFO_DISABLE,
+    },
 
     // accelerometer and gyroscope should trigger at about the same time (due to same ODR)
-    .int_handle_t =
-        {
-            .int1 = IMU_INT1_DRDY_G,
-            .int2 = IMU_INT2_NONE,
-        }
+    .int_handle_t = {
+        .int1 = IMU_INT1_DRDY_G,
+        .int2 = IMU_INT2_NONE,
+    }
 };
 
 bms_handle_t bms = {
@@ -182,8 +181,11 @@ void app_init(ADC_HandleTypeDef * hadc,
     /********************************************* Configure nRF24l01 *****************************************/
     HAL_TIM_Base_Start(htim_us_l); // start microsecond timer for rf_init()
     HAL_TIM_Base_Start(htim_us_h); // start microsecond timer for rf_init()
-    if (rf_init(&rx) == RF_SUCCESS)
+
+    if (nrf24_init(&rx) == NRF24_OK)
         HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
+
+    nrf24_open_rx_pipe(&rx, &rx_pipe);
     /**********************************************************************************************************/
 
     /******************************************** Configure barometer *****************************************/
@@ -229,7 +231,7 @@ void app_init(ADC_HandleTypeDef * hadc,
     HAL_TIM_Base_Start(htim_adc);                      // start triggering ADC (T = 0.2s)
     /**********************************************************************************************************/
 
-    rf_listen_it(&rx);
+    nrf24_listen_it(&rx);
 
     last_pkt_tick_ms = last_bar_tick_ms = millis_get_tick();
     last_imu_tick_us = this_imu_tick_us = micros_get_tick();
@@ -246,23 +248,35 @@ void app(void)
 
     bool has_been_disarmed = 0;
 
+    uint32_t last_tick = 0;
+
     while (1)
     {
         HAL_IWDG_Refresh(iwdg);
 
         if (rf_dr)
         {
+            rf_dr = 0;
+
+            char buff[50];
+            uint32_t this_tick = micros_get_tick();
+            uint32_t len = sprintf(buff, "dt: %d\n", this_tick - last_tick);
+            CDC_Transmit_FS(buff, len);
+            last_tick = this_tick;
+
             pkt_cnt++;
             construct_ack(&ack);
 
             rf_packet_params_t temp;
             uint8_t temp_size;
 
+            nrf24_pipe_num_t pipe_num;
+
             // send acknowlegment every 10 packets
             if (pkt_cnt % PKT_PER_ACK == 0)
-                rf_receive(&rx, (uint8_t *)&temp, &temp_size, (uint8_t *)&ack, sizeof(rf_ack_params_t));
+                nrf24_receive(&rx, (uint8_t *)&ack, sizeof(rf_ack_params_t), (uint8_t *)&temp, &temp_size, &pipe_num);
             else
-                rf_receive(&rx, (uint8_t *)&temp, &temp_size, (uint8_t *)&ack, 0);
+                nrf24_receive(&rx, (uint8_t *)&ack, 0, (uint8_t *)&temp, &temp_size, &pipe_num);
 
             // discard packet if size doesnt match or keys dont match
             // copy to a valid packet if available
@@ -295,13 +309,13 @@ void app(void)
                     // invalid packet, ignore
                 }
             }
-
-            rf_dr = 0;
-            rf_listen_it(&rx);
+            nrf24_listen_it(&rx);
         }
 
         if (imu_dr)
         {
+            imu_dr = 0;
+
             float a_x, a_y, a_z, w_x, w_y, w_z;
 
             // update orientation estimation
@@ -320,15 +334,14 @@ void app(void)
             // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
             last_imu_tick_us = this_imu_tick_us;
-            imu_dr = 0;
         }
 
         if (bar_dr)
         {
+            bar_dr = 0;
+
             float hpa;
             bar_read_press_hpa(&bar, &hpa);
-
-            bar_dr = 0;
         }
 
         // if quadcopter sensors or RF communication is disrupted, go into failsafe
@@ -337,17 +350,32 @@ void app(void)
         uint32_t tick_ms = millis_get_tick();
         uint32_t tick_us = micros_get_tick();
 
-        if (tick_ms - last_pkt_tick_ms > RF_FAILSAFE_TIMEOUT_MS && pkt_cnt != 0)
+        // make sure tick_ms is > than last_tick_ms in case interrupt occurs between read and check
+        if (tick_ms >= last_pkt_tick_ms && tick_ms - last_pkt_tick_ms > RF_FAILSAFE_TIMEOUT_MS && pkt_cnt != 0)
         {
             mode_quad = MODE_STATUS_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_RF;
+
+            uint32_t sample_tick = micros_get_tick();
+            // uint8_t status, fifo_status;
+            // nrf24_read_status(&rx, &status);
+            // nrf24_read_fifo_status(&rx, &fifo_status);
+            // uint16_t irq = HAL_GPIO_ReadPin(RF_IRQ_GPIO_Port, RF_IRQ_Pin);
+            // uint16_t ce = HAL_GPIO_ReadPin(RF_CE_GPIO_Port, RF_CE_Pin);
+
+            char buff[50];
+            uint32_t len;
+            len = sprintf(
+                buff, "t: %d\tdt: %d\tmillis_get_tick(): %d\tlast_pkt_tick_ms: %d\n", sample_tick, millis_get_tick() - last_pkt_tick_ms, millis_get_tick(), last_pkt_tick_ms);
+            // len = sprintf(buff, "t: %d\tdt: %d\tS: %d\tF: %d\tIRQ: %d\tCE: %d\n", sample_tick, millis_get_tick() - last_pkt_tick_ms, status, fifo_status, irq, ce);
+            CDC_Transmit_FS(buff, len);
         }
-        if (((tick_us - last_imu_tick_us) / 1000) > IMU_FAILSAFE_TIMEOUT_MS)
+        if (tick_us >= last_imu_tick_us && ((tick_us - last_imu_tick_us) / 1000) > IMU_FAILSAFE_TIMEOUT_MS)
         {
             mode_quad = MODE_STATUS_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_IMU;
         }
-        if (tick_ms - last_bar_tick_ms > BAR_FAILSAFE_TIMEOUT_MS)
+        if (tick_ms >= last_bar_tick_ms && tick_ms - last_bar_tick_ms > BAR_FAILSAFE_TIMEOUT_MS)
         {
             mode_quad = MODE_STATUS_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_BAR;
@@ -389,8 +417,8 @@ void app(void)
 
             bldc_send(&bldc);
 
-            uint16_t data[] = { bldc.throttles.speed_fl, bldc.throttles.speed_fr, bldc.throttles.speed_bl, bldc.throttles.speed_br };
-            CDC_Transmit_FS((uint8_t *)data, sizeof(data));
+            // uint16_t data[] = { bldc.throttles.speed_fl, bldc.throttles.speed_fr, bldc.throttles.speed_bl, bldc.throttles.speed_br };
+            // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
             HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
             HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
@@ -524,7 +552,7 @@ uint32_t micros_get_tick()
 
     } while (__HAL_TIM_GET_COUNTER(tim_us_h) != tim_high);
 
-    return (uint32_t)(tim_high << 16) | tim_low;
+    return ((uint32_t)tim_high << 16) | (uint32_t)tim_low;
 }
 
 uint32_t millis_get_tick()

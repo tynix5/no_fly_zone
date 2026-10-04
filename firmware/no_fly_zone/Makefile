@@ -82,6 +82,7 @@ Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_iwdg.c
 
 C_SOURCES += $(LIB_DIR)/nrf24l01/nrf24.c
+C_SOURCES += $(LIB_DIR)/nrf24l01/nrf24_hal.c
 C_SOURCES += $(LIB_DIR)/lps25hb/lps25hb.c
 C_SOURCES += $(LIB_DIR)/lsm6ds3tr/lsm6ds3tr.c
 C_SOURCES += $(LIB_DIR)/quaternion/quaternion.c
