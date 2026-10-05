@@ -49,7 +49,7 @@ nrf24_handle_t rx = {
 
     .power_level = NRF24_TX_PWR_0DBM,
     .data_rate = NRF24_DATARATE_2MBPS,
-    .freq_ch = 2,
+    .freq_ch = 110,           // 2400 MHz + 110 = 2.510 GHz
 
     .nrf24_irqs_t = {
         .rx_dr_en = true,
@@ -185,6 +185,7 @@ void app_init(ADC_HandleTypeDef * hadc,
     if (nrf24_init(&rx) == NRF24_OK)
         HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
 
+    // move into same check as nrf24_init
     nrf24_open_rx_pipe(&rx, &rx_pipe);
     /**********************************************************************************************************/
 
@@ -248,8 +249,6 @@ void app(void)
 
     bool has_been_disarmed = 0;
 
-    uint32_t last_tick = 0;
-
     while (1)
     {
         HAL_IWDG_Refresh(iwdg);
@@ -258,13 +257,6 @@ void app(void)
         {
             rf_dr = 0;
 
-            char buff[50];
-            uint32_t this_tick = micros_get_tick();
-            uint32_t len = sprintf(buff, "dt: %d\n", this_tick - last_tick);
-            CDC_Transmit_FS(buff, len);
-            last_tick = this_tick;
-
-            pkt_cnt++;
             construct_ack(&ack);
 
             rf_packet_params_t temp;
@@ -282,6 +274,22 @@ void app(void)
             // copy to a valid packet if available
             if (temp_size == sizeof(rf_packet_params_t))
             {
+                pkt_cnt++;
+
+                /*
+                char buff[50];
+                uint32_t len = sprintf(buff, "Received pkt %d at t: %d\n", temp.throttle, last_pkt_tick_ms);
+                CDC_Transmit_FS(buff, len);
+
+                if (last_pid != temp.throttle - 1 && pkt_cnt != 1)
+                {
+                    len = sprintf(buff, "Missed pkt %d\n", temp.throttle - 1);
+                    CDC_Transmit_FS(buff, len);
+                }
+
+                last_pid = temp.throttle;
+                */
+
                 switch (temp.key)
                 {
                 case DISARMED_KEY:
@@ -350,32 +358,32 @@ void app(void)
         uint32_t tick_ms = millis_get_tick();
         uint32_t tick_us = micros_get_tick();
 
+        // save atomic copies before doing timeout checks
+        // since it is possible for last_*_tick to change between >= check and *_FAILSAFE_TIMEOUT_MS check
+        uint32_t last_pkt_tick_ms_local = last_pkt_tick_ms;
+        uint32_t last_imu_tick_us_local = last_imu_tick_us;
+        uint32_t last_bar_tick_ms_local = last_bar_tick_ms;
+
         // make sure tick_ms is > than last_tick_ms in case interrupt occurs between read and check
-        if (tick_ms >= last_pkt_tick_ms && tick_ms - last_pkt_tick_ms > RF_FAILSAFE_TIMEOUT_MS && pkt_cnt != 0)
+        // may not need the tick > last check
+        if (tick_ms >= last_pkt_tick_ms_local && tick_ms - last_pkt_tick_ms_local > RF_FAILSAFE_TIMEOUT_MS && pkt_cnt != 0)
         {
             mode_quad = MODE_STATUS_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_RF;
 
-            uint32_t sample_tick = micros_get_tick();
-            // uint8_t status, fifo_status;
-            // nrf24_read_status(&rx, &status);
-            // nrf24_read_fifo_status(&rx, &fifo_status);
-            // uint16_t irq = HAL_GPIO_ReadPin(RF_IRQ_GPIO_Port, RF_IRQ_Pin);
-            // uint16_t ce = HAL_GPIO_ReadPin(RF_CE_GPIO_Port, RF_CE_Pin);
-
-            char buff[50];
+            /*
+            char buff[100];
             uint32_t len;
-            len = sprintf(
-                buff, "t: %d\tdt: %d\tmillis_get_tick(): %d\tlast_pkt_tick_ms: %d\n", sample_tick, millis_get_tick() - last_pkt_tick_ms, millis_get_tick(), last_pkt_tick_ms);
-            // len = sprintf(buff, "t: %d\tdt: %d\tS: %d\tF: %d\tIRQ: %d\tCE: %d\n", sample_tick, millis_get_tick() - last_pkt_tick_ms, status, fifo_status, irq, ce);
+            len = sprintf(buff, "Timeout at t: %d, dt: %d, Waiting for %d\n", tick_ms, tick_ms - last_pkt_tick_ms_local, last_pid + 1);
             CDC_Transmit_FS(buff, len);
+            */
         }
-        if (tick_us >= last_imu_tick_us && ((tick_us - last_imu_tick_us) / 1000) > IMU_FAILSAFE_TIMEOUT_MS)
+        if (tick_us >= last_imu_tick_us_local && ((tick_us - last_imu_tick_us_local) / 1000) > IMU_FAILSAFE_TIMEOUT_MS)
         {
             mode_quad = MODE_STATUS_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_IMU;
         }
-        if (tick_ms >= last_bar_tick_ms && tick_ms - last_bar_tick_ms > BAR_FAILSAFE_TIMEOUT_MS)
+        if (tick_ms >= last_bar_tick_ms_local && tick_ms - last_bar_tick_ms_local > BAR_FAILSAFE_TIMEOUT_MS)
         {
             mode_quad = MODE_STATUS_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_BAR;
