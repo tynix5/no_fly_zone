@@ -70,14 +70,13 @@ nrf24_handle_t tx = {
 
     .power_level = NRF24_TX_PWR_0DBM,
     .data_rate = NRF24_DATARATE_2MBPS,
-    .freq_ch = 2,
+    .freq_ch = 110,         // 2400 MHz + 110 = 2.510 GHz
 
-    .nrf24_irqs_t =
-        {
+    .nrf24_irqs_t ={
             .rx_dr_en = false,
             .tx_ds_en = false,
             .max_rt_en = false,
-        },
+    },
 };
 
 nrf24_pipe_t ack_pipe = {
@@ -146,9 +145,9 @@ void app_init(ADC_HandleTypeDef * hadc,
     HAL_TIM_Base_Start_IT(tim_us_l);
 
     nrf24_init(&tx);
-    nrf24_set_retransmit(&tx, NRF24_RETRY_DELAY_1000, NRF24_RETRY_CNT_DISABLE); // no retransmits
-    nrf24_open_rx_pipe(&tx, &ack_pipe);                                         // open RX pipe on 0
-    nrf24_open_tx_pipe(&tx, RF_TX_ADDR);                                        // match TX with RX for auto acks
+    nrf24_set_retransmit(&tx, NRF24_RETRY_DELAY_500, NRF24_RETRY_CNT_3); // no retransmits
+    nrf24_open_rx_pipe(&tx, &ack_pipe);                                  // open RX pipe on 0
+    nrf24_open_tx_pipe(&tx, RF_TX_ADDR);                                 // match TX with RX for auto acks
     /**********************************************************************************************************/
 
     /************************************** Configure battery management **************************************/
@@ -195,9 +194,6 @@ void app(void)
     };
 
     uint32_t last_mode_change = 0;
-
-    uint32_t last_tick = 0;
-
     uint32_t last_oled_tick_ms = 0;
 
     while (1)
@@ -236,15 +232,15 @@ void app(void)
         {
             adc_dr = 0;
 
+            /*
             uint32_t this_tick = micros_get_tick();
-            uint16_t low = __HAL_TIM_GET_COUNTER(tim_us_l);
-            uint16_t high = tim_us_cnt_h;
             char buff[100];
             uint32_t len;
             uint32_t dt = this_tick - last_tick;
-            len = sprintf(buff, "t: %d\t dt: %d\tlow: %d\thigh: %d\n", this_tick, dt, low, high);
+            len = sprintf(buff, "Sent pkt %d at t: %d, dt: %d\n", pid, this_tick, dt);
             CDC_Transmit_FS(buff, len);
             last_tick = this_tick;
+            */
 
             // convert joysticks to euler angles and then quaternions
             memcpy((uint16_t *)&joysticks, (uint16_t *)samples, sizeof(joysticks));
@@ -328,10 +324,6 @@ void app(void)
             {
                 quad_batt_lvl = ack.quad_batt_lvl;
                 HAL_GPIO_TogglePin(USER_LED_GPIO_Port, USER_LED_Pin);
-
-                // char buff[20];
-                // uint8_t l = sprintf(buff, "%d\n", ticks);
-                // CDC_Transmit_FS(buff, l);
             }
         }
 
