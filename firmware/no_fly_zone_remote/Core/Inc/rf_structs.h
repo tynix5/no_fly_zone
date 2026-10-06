@@ -10,11 +10,11 @@
 
 typedef enum : uint8_t
 {
-    MODE_STATUS_DISARMED = 0,
-    MODE_STATUS_ARMED,
-    MODE_STATUS_FAILSAFE,
+    ARM_STATE_DISARMED = 0,
+    ARM_STATE_ARMED,
+    ARM_STATE_FAILSAFE,
 
-} arm_status_t;
+} arm_state_t;
 
 // packet sent from remote to quadcopter
 typedef struct __attribute__((packed))

@@ -26,7 +26,8 @@
 #define ADC_SAMP_DT   (float)(1.0 / ADC_SAMP_RATE)
 #define ADC_RES_CNT   4096.0f
 
-#define OLED_UPDATE_T 50
+#define OLED_UPDATE_T      50
+#define ARM_STATE_UPDATE_T 500
 
 #define MAX_PITCH_RATE_DEG 360
 #define MIN_PITCH_RATE_DEG -360
@@ -50,7 +51,7 @@ uint8_t tx_buff[OLED_RES_X * OLED_PAGES + 13];
 oled_pages_t page = PAGE_BATT_LVL;
 uint8_t sw_state = 0;
 
-volatile uint8_t adc_dr = 0;
+volatile bool adc_dr = false;
 float kp = 0, ki = 0, kd = 0;
 
 void delay_us(uint32_t delay);
@@ -73,9 +74,9 @@ nrf24_handle_t tx = {
     .freq_ch = 110,         // 2400 MHz + 110 = 2.510 GHz
 
     .nrf24_irqs_t ={
-            .rx_dr_en = false,
-            .tx_ds_en = false,
-            .max_rt_en = false,
+        .rx_dr_en = false,
+        .tx_ds_en = false,
+        .max_rt_en = false,
     },
 };
 
@@ -116,7 +117,7 @@ bms_handle_t bms = {
 TIM_HandleTypeDef * tim_us_l;
 uint16_t tim_us_cnt_h;
 
-arm_status_t mode_remote = MODE_STATUS_DISARMED;
+arm_state_t arm_state_remote = ARM_STATE_DISARMED;
 
 void encoder_callback(encoder_handle_t * henc, encoder_event_t enc_event, encoder_event_t sw_event);
 void bms_callback(bms_handle_t * bms, bms_event_t event);
@@ -193,8 +194,10 @@ void app(void)
         .q4 = 0,
     };
 
-    uint32_t last_mode_change = 0;
-    uint32_t last_oled_tick_ms = 0;
+    uint32_t last_arm_state_update = 0;
+
+    uint32_t adc_samples_cnt = 0;
+    bool rf_recent_tx = false;
 
     while (1)
     {
@@ -217,36 +220,27 @@ void app(void)
 
         // stay disarmed until throttle is pulled all the way down while encoder
         // button is pressed
-        if (sw_state && page != PAGE_TUNE_PID && joysticks.throttle > 3000 && HAL_GetTick() - last_mode_change > 500)
+        if (sw_state && page == PAGE_BATT_LVL && joysticks.throttle > 3000 && millis_get_tick() - last_arm_state_update > ARM_STATE_UPDATE_T)
         {
-            if (mode_remote == MODE_STATUS_ARMED)
-                mode_remote = MODE_STATUS_DISARMED;
-            else if (mode_remote == MODE_STATUS_DISARMED)
-                mode_remote = MODE_STATUS_ARMED;
+            if (arm_state_remote == ARM_STATE_ARMED)
+                arm_state_remote = ARM_STATE_DISARMED;
+            else if (arm_state_remote == ARM_STATE_DISARMED)
+                arm_state_remote = ARM_STATE_ARMED;
 
             curr_tune_param = ACTIVE_TUNE_NONE;
-            last_mode_change = HAL_GetTick();
+            last_arm_state_update = millis_get_tick();
         }
 
         if (adc_dr)
         {
-            adc_dr = 0;
-
-            /*
-            uint32_t this_tick = micros_get_tick();
-            char buff[100];
-            uint32_t len;
-            uint32_t dt = this_tick - last_tick;
-            len = sprintf(buff, "Sent pkt %d at t: %d, dt: %d\n", pid, this_tick, dt);
-            CDC_Transmit_FS(buff, len);
-            last_tick = this_tick;
-            */
+            adc_dr = false;
+            adc_samples_cnt++;
 
             // convert joysticks to euler angles and then quaternions
             memcpy((uint16_t *)&joysticks, (uint16_t *)samples, sizeof(joysticks));
 
             // tune mode
-            if (mode_remote == MODE_STATUS_DISARMED && page == PAGE_TUNE_PID)
+            if (arm_state_remote == ARM_STATE_DISARMED && page == PAGE_TUNE_PID)
             {
                 tune(&joysticks, &kp, &ki, &kd, &last_tune_update, &curr_tune_param);
             }
@@ -289,15 +283,15 @@ void app(void)
 
             uint8_t key;
 
-            switch (mode_remote)
+            switch (arm_state_remote)
             {
-            case MODE_STATUS_DISARMED:
+            case ARM_STATE_DISARMED:
                 key = DISARMED_KEY;
                 break;
-            case MODE_STATUS_ARMED:
+            case ARM_STATE_ARMED:
                 key = ARMED_KEY;
                 break;
-            case MODE_STATUS_FAILSAFE:
+            case ARM_STATE_FAILSAFE:
             default:
                 key = FAILSAFE_KEY;
             }
@@ -325,27 +319,30 @@ void app(void)
                 quad_batt_lvl = ack.quad_batt_lvl;
                 HAL_GPIO_TogglePin(USER_LED_GPIO_Port, USER_LED_Pin);
             }
+
+            rf_recent_tx = true;
         }
 
         encoder_update(&enc);
 
-        oled_params_t oled_info = {
-            .joysticks = &joysticks,
-            .page = page,
-            .rx_batt = quad_batt_lvl,
-            .tx_batt = remote_batt_lvl,
-            .mode = mode_remote,
-            .kp = kp,
-            .ki = ki,
-            .kd = kd,
-            .tuning_param = curr_tune_param,
-        };
-
-        uint32_t this_tick_ms = millis_get_tick();
-        if (this_tick_ms - last_oled_tick_ms >= OLED_UPDATE_T)
+        // update OLED after RF packet has been recently transmitted as not to disturb packet frequency
+        // since ADC is running at 200Hz, OLED updates at 20Hz
+        if (adc_samples_cnt % 10 == 0 && rf_recent_tx)
         {
+            oled_params_t oled_info = {
+                .joysticks = &joysticks,
+                .page = page,
+                .rx_batt = quad_batt_lvl,
+                .tx_batt = remote_batt_lvl,
+                .mode = arm_state_remote,
+                .kp = kp,
+                .ki = ki,
+                .kd = kd,
+                .tuning_param = curr_tune_param,
+            };
+
             oled_update(&oled, &oled_info);
-            last_oled_tick_ms = this_tick_ms;
+            rf_recent_tx = false;
         }
     }
 }
@@ -353,7 +350,7 @@ void app(void)
 /************************************************* Interrupt Callbacks *****************************************************/
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef * hadc)
 {
-    adc_dr = 1;
+    adc_dr = true;
 }
 
 void HAL_I2C_MasterTxCpltCallback(I2C_HandleTypeDef * hi2c)
@@ -394,7 +391,7 @@ void bms_callback(bms_handle_t * bms, bms_event_t event)
     // if battery is empty, go to failsafe mode
     if (event == BMS_EVENT_CHARGE_EMPTY)
     {
-        mode_remote = MODE_STATUS_FAILSAFE;
+        arm_state_remote = ARM_STATE_FAILSAFE;
     }
 }
 

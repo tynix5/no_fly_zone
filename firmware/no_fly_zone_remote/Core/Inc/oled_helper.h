@@ -26,7 +26,7 @@ typedef struct
     oled_pages_t page;
     uint8_t tx_batt;
     uint8_t rx_batt;
-    arm_status_t mode;
+    arm_state_t mode;
     joystick_t * joysticks;
     float kp;
     float ki;
