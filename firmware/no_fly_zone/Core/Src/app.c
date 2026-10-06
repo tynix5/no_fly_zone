@@ -123,7 +123,7 @@ bms_handle_t bms = {
 bldc_handle_t bldc;
 madgwick_state_t state;
 
-volatile uint8_t rf_dr = 0, imu_dr = 0, bar_dr = 0;
+volatile bool rf_dr = false, imu_dr = false, bar_dr = false;
 volatile uint32_t last_pkt_tick_ms, last_bar_tick_ms, last_imu_tick_us;
 uint32_t this_imu_tick_us;
 
@@ -146,7 +146,7 @@ typedef enum : uint8_t
 failsafe_type_t failsafe_cause = 0;
 /***********************************************************************************************/
 
-arm_status_t mode_quad = MODE_STATUS_DISARMED;
+arm_state_t arm_state_quad = ARM_STATE_DISARMED;
 
 static void construct_ack(rf_ack_params_t * ack);
 void bms_callback(bms_handle_t * bms, bms_event_t event);
@@ -255,7 +255,7 @@ void app(void)
 
         if (rf_dr)
         {
-            rf_dr = 0;
+            rf_dr = false;
 
             construct_ack(&ack);
 
@@ -296,19 +296,19 @@ void app(void)
                     memcpy((uint8_t *)&pkt, (uint8_t *)&temp, sizeof(rf_packet_params_t));
                     has_been_disarmed = true;
                     // do not go into disarm mode if something has failed
-                    if (mode_quad != MODE_STATUS_FAILSAFE)
-                        mode_quad = MODE_STATUS_DISARMED;
+                    if (arm_state_quad != ARM_STATE_FAILSAFE)
+                        arm_state_quad = ARM_STATE_DISARMED;
                     break;
                 case ARMED_KEY:
                     memcpy((uint8_t *)&pkt, (uint8_t *)&temp, sizeof(rf_packet_params_t));
                     // prevent quadcopter from arming if it has never seen a disarmed
                     // packet
-                    if (has_been_disarmed && mode_quad != MODE_STATUS_FAILSAFE)
-                        mode_quad = MODE_STATUS_ARMED;
+                    if (has_been_disarmed && arm_state_quad != ARM_STATE_FAILSAFE)
+                        arm_state_quad = ARM_STATE_ARMED;
                     break;
                 case FAILSAFE_KEY:
                     memcpy((uint8_t *)&pkt, (uint8_t *)&temp, sizeof(rf_packet_params_t));
-                    mode_quad = MODE_STATUS_FAILSAFE;
+                    arm_state_quad = ARM_STATE_FAILSAFE;
                     // remote type doesn't really make sense, wouldn't receive anything
                     // from remote if it failed
                     failsafe_cause |= FAILSAFE_TYPE_REMOTE;
@@ -322,7 +322,7 @@ void app(void)
 
         if (imu_dr)
         {
-            imu_dr = 0;
+            imu_dr = false;
 
             float a_x, a_y, a_z, w_x, w_y, w_z;
 
@@ -346,7 +346,7 @@ void app(void)
 
         if (bar_dr)
         {
-            bar_dr = 0;
+            bar_dr = false;
 
             float hpa;
             bar_read_press_hpa(&bar, &hpa);
@@ -368,7 +368,7 @@ void app(void)
         // may not need the tick > last check
         if (tick_ms >= last_pkt_tick_ms_local && tick_ms - last_pkt_tick_ms_local > RF_FAILSAFE_TIMEOUT_MS && pkt_cnt != 0)
         {
-            mode_quad = MODE_STATUS_FAILSAFE;
+            arm_state_quad = ARM_STATE_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_RF;
 
             /*
@@ -380,18 +380,18 @@ void app(void)
         }
         if (tick_us >= last_imu_tick_us_local && ((tick_us - last_imu_tick_us_local) / 1000) > IMU_FAILSAFE_TIMEOUT_MS)
         {
-            mode_quad = MODE_STATUS_FAILSAFE;
+            arm_state_quad = ARM_STATE_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_IMU;
         }
         if (tick_ms >= last_bar_tick_ms_local && tick_ms - last_bar_tick_ms_local > BAR_FAILSAFE_TIMEOUT_MS)
         {
-            mode_quad = MODE_STATUS_FAILSAFE;
+            arm_state_quad = ARM_STATE_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_BAR;
         }
 
-        switch (mode_quad)
+        switch (arm_state_quad)
         {
-        case MODE_STATUS_DISARMED:
+        case ARM_STATE_DISARMED:
             // stop motors
             bldc_stop(&bldc);
 
@@ -403,7 +403,7 @@ void app(void)
             HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_RESET);
             break;
 
-        case MODE_STATUS_ARMED:
+        case ARM_STATE_ARMED:
 
             // calculate quaternion error and convert to a rate error
             float w_x_err, w_y_err, w_z_err;
@@ -434,7 +434,7 @@ void app(void)
 
             break;
 
-        case MODE_STATUS_FAILSAFE:
+        case ARM_STATE_FAILSAFE:
 
             // immediately stop and disable motors
             bldc_stop(&bldc);
@@ -477,19 +477,19 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     // RF IRQ on falling edge
     if (GPIO_Pin == RF_IRQ_Pin)
     {
-        rf_dr = 1;
+        rf_dr = true;
         last_pkt_tick_ms = millis_get_tick();
     }
     // IMU IRQ on rising edge
     if (GPIO_Pin == IMU_IRQ1_Pin)
     {
-        imu_dr = 1;
+        imu_dr = true;
         this_imu_tick_us = micros_get_tick();
     }
     // BAR IRQ on rising edge
     if (GPIO_Pin == BAR_IRQ_Pin)
     {
-        bar_dr = 1;
+        bar_dr = true;
         last_bar_tick_ms = millis_get_tick();
     }
 }
@@ -523,15 +523,15 @@ static void construct_ack(rf_ack_params_t * ack)
 
     ack->quad_batt_lvl = (uint8_t)percent;
 
-    switch (mode_quad)
+    switch (arm_state_quad)
     {
-    case MODE_STATUS_DISARMED:
+    case ARM_STATE_DISARMED:
         ack->key = DISARMED_KEY;
         break;
-    case MODE_STATUS_ARMED:
+    case ARM_STATE_ARMED:
         ack->key = ARMED_KEY;
         break;
-    case MODE_STATUS_FAILSAFE:
+    case ARM_STATE_FAILSAFE:
     default:
         ack->key = FAILSAFE_KEY;
     }
@@ -543,7 +543,7 @@ void bms_callback(bms_handle_t * bms, bms_event_t event)
     // discharge
     if (event == BMS_EVENT_CHARGE_EMPTY)
     {
-        mode_quad = MODE_STATUS_FAILSAFE;
+        arm_state_quad = ARM_STATE_FAILSAFE;
     }
 }
 
