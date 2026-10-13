@@ -20,7 +20,8 @@ void app_init(ADC_HandleTypeDef * hadc,
               SPI_HandleTypeDef * hspi,
               TIM_HandleTypeDef * htim_adc,
               TIM_HandleTypeDef * henc,
-              TIM_HandleTypeDef * htim_us_l);
+              TIM_HandleTypeDef * htim_us_l,
+              IWDG_HandleTypeDef * hiwdg);
 void app(void);
 
 #endif

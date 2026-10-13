@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <math.h>
+#include "rf_structs.h"
 #include "ssd1306.h"
 
 static const uint8_t battery[24 * 10] = { 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -14,20 +15,22 @@ static const uint8_t battery[24 * 10] = { 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
 void oled_update(ssd1306_handle_t * holed, oled_params_t * params)
 {
     ssd1306_clear(holed);
-    oled_show_lock(holed, params->mode);
+    oled_show_lock(holed, params->arm_state);
     oled_show_page(holed, params->page);
 
-    if (params->page == PAGE_BATT_LVL)
+    switch (params->page)
     {
+    case PAGE_BATT_LVL:
         oled_show_battery(holed, params->tx_batt, params->rx_batt);
-    }
-    else if (params->page == PAGE_JOYSTICK)
-    {
+        break;
+
+    case PAGE_JOYSTICK:
         oled_show_joysticks(holed, params->joysticks);
-    }
-    else if (params->page == PAGE_TUNE_PID)
-    {
+        break;
+
+    case PAGE_TUNE_PID:
         oled_show_pid(holed, params->kp, params->ki, params->kd, params->tuning_param);
+        break;
     }
 
     ssd1306_update(holed);
@@ -35,37 +38,43 @@ void oled_update(ssd1306_handle_t * holed, oled_params_t * params)
 
 void oled_show_page(ssd1306_handle_t * holed, oled_pages_t page)
 {
-    if (page == PAGE_BATT_LVL)
+    switch (page)
     {
+    case PAGE_BATT_LVL:
         ssd1306_draw_filled_circle(holed, 48, 58, 4);
         ssd1306_draw_filled_circle(holed, 64, 58, 2);
         ssd1306_draw_filled_circle(holed, 80, 58, 2);
-    }
-    else if (page == PAGE_JOYSTICK)
-    {
+        break;
+
+    case PAGE_JOYSTICK:
         ssd1306_draw_filled_circle(holed, 48, 58, 2);
         ssd1306_draw_filled_circle(holed, 64, 58, 4);
         ssd1306_draw_filled_circle(holed, 80, 58, 2);
-    }
-    else if (page == PAGE_TUNE_PID)
-    {
+        break;
+
+    case PAGE_TUNE_PID:
         ssd1306_draw_filled_circle(holed, 48, 58, 2);
         ssd1306_draw_filled_circle(holed, 64, 58, 2);
         ssd1306_draw_filled_circle(holed, 80, 58, 4);
+        break;
     }
 }
 
-void oled_show_lock(ssd1306_handle_t * holed, uint8_t mode)
+void oled_show_lock(ssd1306_handle_t * holed, uint8_t arm_state)
 {
-    // add failsafe mode
-    // disarmed
-    if (mode == 0)
+    switch (arm_state)
     {
+    case ARM_STATE_DISARMED:
         ssd1306_write_str(holed, 40, 2, "DISARM");
-    }
-    else
-    {
+        break;
+
+    case ARM_STATE_ARMED:
         ssd1306_write_str(holed, 52, 2, "ARM");
+        break;
+
+    case ARM_STATE_FAILSAFE:
+    default:
+        ssd1306_write_str(holed, 48, 2, "FAIL");
     }
 }
 

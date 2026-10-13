@@ -5,6 +5,7 @@
 #include "stm32l432xx.h"
 #include "stm32l4xx_hal.h"
 #include "stm32l4xx_hal_gpio.h"
+#include "stm32l4xx_hal_iwdg.h"
 #include "stm32l4xx_hal_tim.h"
 #include "usbd_cdc_if.h"
 #include <math.h>
@@ -114,6 +115,8 @@ bms_handle_t bms = {
     .v_offset = 0.13, // measured
 };
 
+IWDG_HandleTypeDef * iwdg;
+
 TIM_HandleTypeDef * tim_us_l;
 uint16_t tim_us_cnt_h;
 
@@ -134,12 +137,14 @@ void app_init(ADC_HandleTypeDef * hadc,
               SPI_HandleTypeDef * hspi,
               TIM_HandleTypeDef * htim_adc,
               TIM_HandleTypeDef * henc,
-              TIM_HandleTypeDef * htim_us_l)
+              TIM_HandleTypeDef * htim_us_l,
+              IWDG_HandleTypeDef * hiwdg)
 {
     tx.hspi = hspi;
     oled.hi2c = hi2c;
     enc.htim = henc;
     tim_us_l = htim_us_l;
+    iwdg = hiwdg;
 
     /******************************************** Configure nRF24L01 ******************************************/
     // microsecond timer must be started for rf_init()
@@ -187,20 +192,16 @@ void app(void)
 
     joystick_t joysticks;
 
-    quaternion_t q_des = {
-        .q1 = 1,
-        .q2 = 0,
-        .q3 = 0,
-        .q4 = 0,
-    };
-
     uint32_t last_arm_state_update = 0;
 
     uint32_t adc_samples_cnt = 0;
     bool rf_recent_tx = false;
 
+    quaternion_t q_des = { .q1 = 1, .q2 = 0, .q3 = 0, .q4 = 0 };
+
     while (1)
     {
+        HAL_IWDG_Refresh(iwdg); // will cause system reset if refresh() not called every ~0.5s
         // to arm, pull throttle all the way down and press encoder
 
         // flight mode
@@ -217,6 +218,9 @@ void app(void)
         // 3. tune PID values
         // 4. send PID values over radio
         // 5. write PID values to non-volatile memory
+
+        // pages 2 and 3 of OLED should only be able to be accessed when in DISARMED mode
+        // if OLED is in ARMED mode, it is locked on page 1
 
         // stay disarmed until throttle is pulled all the way down while encoder
         // button is pressed
@@ -239,40 +243,57 @@ void app(void)
             // convert joysticks to euler angles and then quaternions
             memcpy((uint16_t *)&joysticks, (uint16_t *)samples, sizeof(joysticks));
 
-            // tune mode
-            if (arm_state_remote == ARM_STATE_DISARMED && page == PAGE_TUNE_PID)
-            {
-                tune(&joysticks, &kp, &ki, &kd, &last_tune_update, &curr_tune_param);
-            }
-
-            // map joystick positions to euler angle rates
-            float pitch_rate_dps, roll_rate_dps, yaw_rate_dps;
-            pos_to_euler_rates(&joysticks, &pitch_rate_dps, &roll_rate_dps, &yaw_rate_dps);
-
-            // convert to radians per second
-            float pitch_rate_rps = pitch_rate_dps * M_PI / 180.0;
-            float roll_rate_rps = roll_rate_dps * M_PI / 180.0;
-            float yaw_rate_rps = yaw_rate_dps * M_PI / 180.0;
-
-            // convert angular rates to desired quaternion
-            // this is an acrobatic mode of sorts
-            // if user wants quadcopter to return to level position after releasing
-            // sticks, do euler_to_quat() must match those in madgwick filter for
-            // quadcopter
-            euler_rates_to_quat(roll_rate_rps, pitch_rate_rps, yaw_rate_rps, &q_des);
-            // CDC_Transmit_FS((uint8_t *)&q_des, sizeof(q_des));
-
             float percent;
             bms_update(&bms, (float)samples[4] / ADC_RES_CNT, &percent);
-
             remote_batt_lvl = (uint8_t)percent;
 
-            // if throttle < halfway, throttle = 0
-            // otherwise throttle = throttle - 2048
-            // add a condition_joysticks() function to convert ranges
-            // handle jerking, accleration, etc
+            uint8_t key;
             uint16_t shaped_throttle;
-            condition_throttle(joysticks.throttle, &shaped_throttle);
+
+            switch (arm_state_remote)
+            {
+            case ARM_STATE_DISARMED:
+
+                if (page == PAGE_TUNE_PID)
+                    tune(&joysticks, &kp, &ki, &kd, &last_tune_update, &curr_tune_param);
+
+                key = DISARMED_KEY;
+
+                break;
+
+            case ARM_STATE_ARMED:
+
+                // map joystick positions to euler angle rates
+                float pitch_rate_dps, roll_rate_dps, yaw_rate_dps;
+                pos_to_euler_rates(&joysticks, &pitch_rate_dps, &roll_rate_dps, &yaw_rate_dps);
+
+                // convert to radians per second
+                float pitch_rate_rps = pitch_rate_dps * M_PI / 180.0;
+                float roll_rate_rps = roll_rate_dps * M_PI / 180.0;
+                float yaw_rate_rps = yaw_rate_dps * M_PI / 180.0;
+
+                // convert angular rates to desired quaternion
+                // this is an acrobatic mode of sorts
+                // if user wants quadcopter to return to level position after releasing
+                // sticks, do euler_to_quat() must match those in madgwick filter for
+                // quadcopter
+                euler_rates_to_quat(roll_rate_rps, pitch_rate_rps, yaw_rate_rps, &q_des);
+                // CDC_Transmit_FS((uint8_t *)&q_des, sizeof(q_des));
+
+                // if throttle < halfway, throttle = 0
+                // otherwise throttle = throttle - 2048
+                // add a condition_joysticks() function to convert ranges
+                // handle jerking, accleration, etc
+                condition_throttle(joysticks.throttle, &shaped_throttle);
+
+                key = ARMED_KEY;
+                break;
+
+            case ARM_STATE_FAILSAFE:
+            default:
+                key = FAILSAFE_KEY;
+                break;
+            }
 
             // uint16_t data[2] = { joysticks.throttle, shaped_throttle };
             // CDC_Transmit_FS((uint8_t *)&data, sizeof(data));
@@ -281,43 +302,30 @@ void app(void)
             // do joysticks--> angle rates, then integrate and convert those into
             // quaternion
 
-            uint8_t key;
-
-            switch (arm_state_remote)
-            {
-            case ARM_STATE_DISARMED:
-                key = DISARMED_KEY;
-                break;
-            case ARM_STATE_ARMED:
-                key = ARMED_KEY;
-                break;
-            case ARM_STATE_FAILSAFE:
-            default:
-                key = FAILSAFE_KEY;
-            }
-
             rf_packet_params_t pkt = {
                 .throttle = shaped_throttle,
+                .q_des = {
+                    .q1 = q_des.q1,
+                    .q2 = q_des.q2,
+                    .q3 = q_des.q3,
+                    .q4 = q_des.q4,
+                },
                 .kp = kp,
                 .ki = ki,
                 .kd = kd,
                 .key = key,
             };
 
-            pkt.q_des.q1 = q_des.q1;
-            pkt.q_des.q2 = q_des.q2;
-            pkt.q_des.q3 = q_des.q3;
-            pkt.q_des.q4 = q_des.q4;
-
             rf_ack_params_t ack;
             uint8_t ack_len;
 
-            nrf24_send(&tx, (uint8_t *)&pkt, sizeof(rf_packet_params_t), true, (uint8_t *)&ack, &ack_len);
-
-            if (ack_len == sizeof(rf_ack_params_t))
+            if (nrf24_send(&tx, (uint8_t *)&pkt, sizeof(rf_packet_params_t), true, (uint8_t *)&ack, &ack_len) == NRF24_OK)
             {
-                quad_batt_lvl = ack.quad_batt_lvl;
-                HAL_GPIO_TogglePin(USER_LED_GPIO_Port, USER_LED_Pin);
+                if (ack_len == sizeof(rf_ack_params_t))
+                {
+                    quad_batt_lvl = ack.quad_batt_lvl;
+                    HAL_GPIO_TogglePin(USER_LED_GPIO_Port, USER_LED_Pin);
+                }
             }
 
             rf_recent_tx = true;
@@ -334,7 +342,7 @@ void app(void)
                 .page = page,
                 .rx_batt = quad_batt_lvl,
                 .tx_batt = remote_batt_lvl,
-                .mode = arm_state_remote,
+                .arm_state = arm_state_remote,
                 .kp = kp,
                 .ki = ki,
                 .kd = kd,
@@ -366,11 +374,13 @@ void encoder_callback(encoder_handle_t * henc, encoder_event_t enc_event, encode
     {
     case ENCODER_EVENT_CW_TURN:
     case ENCODER_EVENT_CCW_TURN:
+        // do not allow page changes when in armed mode
+        if (arm_state_remote == ARM_STATE_ARMED)
+            encoder_set_position(henc, PAGE_BATT_LVL);
+
         page = encoder_get_position(henc);
         break;
     case ENCODER_EVENT_NONE:
-    case ENCODER_EVENT_SW_RELEASE:
-    case ENCODER_EVENT_SW_PRESS:
     default:
     }
 
