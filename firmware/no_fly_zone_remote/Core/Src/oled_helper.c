@@ -25,7 +25,7 @@ void oled_update(ssd1306_handle_t * holed, oled_params_t * params)
         break;
 
     case PAGE_JOYSTICK:
-        oled_show_joysticks(holed, params->joysticks);
+        oled_show_joysticks(holed, params->joysticks, params->is_calibrating);
         break;
 
     case PAGE_TUNE_PID:
@@ -115,9 +115,8 @@ void oled_show_battery(ssd1306_handle_t * holed, uint8_t tx_batt, uint8_t rx_bat
     ssd1306_write_str(holed, 77, 20, percent);
 }
 
-void oled_show_joysticks(ssd1306_handle_t * holed, joystick_t * joysticks)
+void oled_show_joysticks(ssd1306_handle_t * holed, joystick_t * joysticks, bool is_calibrating)
 {
-
     uint8_t throttle_new = (joysticks->throttle / 4096.0) * 100;
     uint8_t pitch_new = (joysticks->pitch / 4096.0) * 100;
     uint8_t roll_new = (joysticks->roll / 4096.0) * 100;
@@ -137,6 +136,9 @@ void oled_show_joysticks(ssd1306_handle_t * holed, joystick_t * joysticks)
     int8_t right_x = (int8_t)round((double)(roll_new - 50) / 100.0 * joystick_r * 2);
     int8_t right_y = (int8_t)round((double)(pitch_new - 50) / 100.0 * joystick_r * 2);
     ssd1306_draw_filled_circle(holed, right_x + 100, right_y + 32, 3);
+
+    if (is_calibrating)
+        ssd1306_write_str(holed, 52, 28, "CAL");
 }
 
 void oled_show_pid(ssd1306_handle_t * holed, float kp, float ki, float kd, oled_active_tune_param_t tuning_param)

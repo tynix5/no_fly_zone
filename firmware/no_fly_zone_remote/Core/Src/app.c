@@ -1,5 +1,4 @@
 #include "app.h"
-#include "generic_types.h"
 #include "main.h"
 #include "stm32_hal_legacy.h"
 #include "stm32l432xx.h"
@@ -16,6 +15,7 @@
 #include "nrf24.h"
 #include "oled_helper.h"
 #include "quaternion.h"
+#include "joystick_helper.h"
 #include "rf_structs.h"
 #include "ssd1306.h"
 
@@ -25,19 +25,11 @@
 #define N_ADC_SAMPLES 5
 #define ADC_SAMP_RATE 200 // Hz
 #define ADC_SAMP_DT   (float)(1.0 / ADC_SAMP_RATE)
-#define ADC_RES_CNT   4096.0f
 
+// add ms to end of each
 #define OLED_UPDATE_T      50
 #define ARM_STATE_UPDATE_T 500
-
-#define MAX_PITCH_RATE_DEG 360
-#define MIN_PITCH_RATE_DEG -360
-#define MAX_ROLL_RATE_DEG  360
-#define MIN_ROLL_RATE_DEG  -360
-#define MAX_YAW_RATE_DEG   360
-#define MIN_YAW_RATE_DEG   -360
-
-#define ENC_UPDATE_T 100
+#define ENC_UPDATE_T       100
 
 #define OLED_RES_X 128
 #define OLED_RES_Y 64
@@ -74,7 +66,7 @@ nrf24_handle_t tx = {
     .data_rate = NRF24_DATARATE_2MBPS,
     .freq_ch = 110,         // 2400 MHz + 110 = 2.510 GHz
 
-    .nrf24_irqs_t ={
+    .nrf24_irqs_t = {
         .rx_dr_en = false,
         .tx_ds_en = false,
         .max_rt_en = false,
@@ -120,15 +112,13 @@ IWDG_HandleTypeDef * iwdg;
 TIM_HandleTypeDef * tim_us_l;
 uint16_t tim_us_cnt_h;
 
+joystick_calibration_t joysticks_cal;
+
 arm_state_t arm_state_remote = ARM_STATE_DISARMED;
 
 void encoder_callback(encoder_handle_t * henc, encoder_event_t enc_event, encoder_event_t sw_event);
 void bms_callback(bms_handle_t * bms, bms_event_t event);
-static void condition_throttle(uint16_t throttle, uint16_t * shaped_throttle);
-static void shape_input(uint16_t x, uint16_t x_min, uint16_t x_max, uint16_t x_mid, float deadzone, float x_shaped_min, float x_shaped_max, float * x_shaped);
 static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * q_des);
-static void pos_to_euler_rates(joystick_t * joystick, float * pitch_rate, float * roll_rate, float * yaw_rate);
-static float map(float x, float in_min, float in_max, float out_min, float out_max); // convert from [in_min, in_max] to [out_min, out_max]
 static void tune(joystick_t * joysticks, float * kp, float * ki, float * kd, uint32_t * last_tune, oled_active_tune_param_t * active_tune);
 
 void app_init(ADC_HandleTypeDef * hadc,
@@ -170,6 +160,12 @@ void app_init(ADC_HandleTypeDef * hadc,
     HAL_TIM_Encoder_Start(henc, TIM_CHANNEL_ALL);
     /**********************************************************************************************************/
 
+    /***************************************** Configure joystick *********************************************/
+    // config joystick calibration values
+    joysticks_calibration_init(&joysticks_cal);
+    joysticks_cal.millis_get_tick = millis_get_tick;
+    /**********************************************************************************************************/
+
     /****************************************** Configure ADC + DMA *******************************************/
     HAL_ADC_Start_DMA(hadc, (uint32_t *)samples, N_ADC_SAMPLES); // enable ADC with DMA transfers
     HAL_TIM_Base_Start(htim_adc);                                // start ADC conversions (200 Hz)
@@ -201,7 +197,6 @@ void app(void)
 
     while (1)
     {
-        HAL_IWDG_Refresh(iwdg); // will cause system reset if refresh() not called every ~0.5s
         // to arm, pull throttle all the way down and press encoder
 
         // flight mode
@@ -222,6 +217,8 @@ void app(void)
         // pages 2 and 3 of OLED should only be able to be accessed when in DISARMED mode
         // if OLED is in ARMED mode, it is locked on page 1
 
+        HAL_IWDG_Refresh(iwdg); // will cause system reset if refresh() not called every ~0.5s
+
         // stay disarmed until throttle is pulled all the way down while encoder
         // button is pressed
         if (sw_state && page == PAGE_BATT_LVL && joysticks.throttle > 3000 && millis_get_tick() - last_arm_state_update > ARM_STATE_UPDATE_T)
@@ -235,6 +232,11 @@ void app(void)
             last_arm_state_update = millis_get_tick();
         }
 
+        if (sw_state && arm_state_remote == ARM_STATE_DISARMED && page == PAGE_JOYSTICK && !joysticks_cal.is_calibrating)
+        {
+            joysticks_calibration_start(&joysticks_cal);
+        }
+
         if (adc_dr)
         {
             adc_dr = false;
@@ -243,29 +245,37 @@ void app(void)
             // convert joysticks to euler angles and then quaternions
             memcpy((uint16_t *)&joysticks, (uint16_t *)samples, sizeof(joysticks));
 
+            float throttle_norm, pitch_norm, roll_norm, yaw_norm;
+            joysticks_condition(&joysticks, &joysticks_cal, &throttle_norm, &pitch_norm, &roll_norm, &yaw_norm);
+
+            // float buff[4] = { throttle_norm, pitch_norm, roll_norm, yaw_norm };
+            // uint16_t buff[4] = { joysticks.throttle, joysticks.pitch, joysticks.roll, joysticks.yaw };
+            // CDC_Transmit_FS((uint8_t *)buff, sizeof(buff));
+
             float percent;
             bms_update(&bms, (float)samples[4] / ADC_RES_CNT, &percent);
             remote_batt_lvl = (uint8_t)percent;
 
             uint8_t key;
-            uint16_t shaped_throttle;
+            uint16_t shaped_throttle = 0;
 
             switch (arm_state_remote)
             {
             case ARM_STATE_DISARMED:
 
-                if (page == PAGE_TUNE_PID)
+                if (page == PAGE_JOYSTICK)
+                    joysticks_calibrate(&joysticks, &joysticks_cal);
+                else if (page == PAGE_TUNE_PID)
                     tune(&joysticks, &kp, &ki, &kd, &last_tune_update, &curr_tune_param);
 
                 key = DISARMED_KEY;
-
                 break;
 
             case ARM_STATE_ARMED:
 
                 // map joystick positions to euler angle rates
                 float pitch_rate_dps, roll_rate_dps, yaw_rate_dps;
-                pos_to_euler_rates(&joysticks, &pitch_rate_dps, &roll_rate_dps, &yaw_rate_dps);
+                pos_to_euler_rates(pitch_norm, roll_norm, yaw_norm, &pitch_rate_dps, &roll_rate_dps, &yaw_rate_dps);
 
                 // convert to radians per second
                 float pitch_rate_rps = pitch_rate_dps * M_PI / 180.0;
@@ -273,18 +283,13 @@ void app(void)
                 float yaw_rate_rps = yaw_rate_dps * M_PI / 180.0;
 
                 // convert angular rates to desired quaternion
-                // this is an acrobatic mode of sorts
-                // if user wants quadcopter to return to level position after releasing
-                // sticks, do euler_to_quat() must match those in madgwick filter for
-                // quadcopter
                 euler_rates_to_quat(roll_rate_rps, pitch_rate_rps, yaw_rate_rps, &q_des);
                 // CDC_Transmit_FS((uint8_t *)&q_des, sizeof(q_des));
 
                 // if throttle < halfway, throttle = 0
-                // otherwise throttle = throttle - 2048
-                // add a condition_joysticks() function to convert ranges
                 // handle jerking, accleration, etc
-                condition_throttle(joysticks.throttle, &shaped_throttle);
+                /* Consider having centered throttle mean no vertical velocity, below center = descend, above center = ascend */
+                pos_to_throttle(throttle_norm, &shaped_throttle);
 
                 key = ARMED_KEY;
                 break;
@@ -347,6 +352,7 @@ void app(void)
                 .ki = ki,
                 .kd = kd,
                 .tuning_param = curr_tune_param,
+                .is_calibrating = joysticks_cal.is_calibrating,
             };
 
             oled_update(&oled, &oled_info);
@@ -374,12 +380,15 @@ void encoder_callback(encoder_handle_t * henc, encoder_event_t enc_event, encode
     {
     case ENCODER_EVENT_CW_TURN:
     case ENCODER_EVENT_CCW_TURN:
-        // do not allow page changes when in armed mode
+        // do not allow page changes when in armed mode or during calibration process
         if (arm_state_remote == ARM_STATE_ARMED)
             encoder_set_position(henc, PAGE_BATT_LVL);
+        if (arm_state_remote == ARM_STATE_DISARMED && joysticks_cal.is_calibrating)
+            encoder_set_position(henc, PAGE_JOYSTICK);
 
         page = encoder_get_position(henc);
         break;
+
     case ENCODER_EVENT_NONE:
     default:
     }
@@ -405,27 +414,13 @@ void bms_callback(bms_handle_t * bms, bms_event_t event)
     }
 }
 
-static void condition_throttle(uint16_t throttle, uint16_t * shaped_throttle)
-{
-    // clean up this implementation
-    uint16_t throttle_min = 400;
-    uint16_t throttle_center = 1900;
-    float deadband = 0.05;
-
-    uint16_t deadzone_start = throttle_center - throttle_center * deadband;
-    if (throttle < deadzone_start)
-        *shaped_throttle = (uint16_t)map(throttle, throttle_min, deadzone_start, 2047, 48);
-    else
-        *shaped_throttle = 0;
-}
-
 static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * q_des)
 {
     // place gyro angular rates (radians per second) into quaternion
     quaternion_t q_rates = {
         .q1 = 0,
         .q2 = w_x,
-        .q3 = w_y,
+        .q3 = -w_y,
         .q4 = w_z,
     };
 
@@ -444,64 +439,9 @@ static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * 
     quat_normalize(q_des);
 }
 
-static void shape_input(uint16_t x, uint16_t x_min, uint16_t x_max, uint16_t x_mid, float deadzone, float x_shaped_min, float x_shaped_max, float * x_shaped)
-{
-    // transform input x in range [x_min, x_max] to [x_shaped_min, x_shaped_max]
-    // in a quadratic fashion. Small deviations from center of range result in
-    // smaller outputs, larger deviations result in larger swings
-
-    // map input to [-1, 1] range
-    if (x > x_mid)
-        *x_shaped = (float)(x - x_mid) / (float)(x_max - x_mid); // maps to [0, 1]
-    else
-        *x_shaped = (float)(x - x_mid) / (float)(x_mid - x_min); // maps to [-1, 0]
-
-    // fix discontinuity at deadzone boundaries
-    if (fabsf(*x_shaped) < deadzone)
-        *x_shaped = 0;
-    else
-        *x_shaped = (fabsf(*x_shaped) - deadzone) / (1.0 - deadzone);
-
-    // scale output quadratically with input
-    if (x > x_mid)
-        *x_shaped = powf(*x_shaped, 2.0) * x_shaped_max;
-    else
-        *x_shaped = powf(*x_shaped, 2.0) * x_shaped_min;
-}
-
-static void pos_to_euler_rates(joystick_t * joystick, float * pitch_rate, float * roll_rate, float * yaw_rate)
-{
-    // calibrate()
-    const uint16_t pitch_min = 400;
-    const uint16_t roll_min = 400;
-    const uint16_t yaw_min = 400;
-    const uint16_t pitch_max = 3600;
-    const uint16_t roll_max = 3600;
-    const uint16_t yaw_max = 3600;
-    const uint16_t pitch_center = 1900;
-    const uint16_t roll_center = 1900;
-    const uint16_t yaw_center = 1900;
-
-    const float deadzone = 0.05; // 5% deadzone
-
-    shape_input(joystick->pitch, pitch_min, pitch_max, pitch_center, deadzone, MIN_PITCH_RATE_DEG, MAX_PITCH_RATE_DEG, pitch_rate);
-    shape_input(joystick->roll, roll_min, roll_max, roll_center, deadzone, MIN_ROLL_RATE_DEG, MAX_ROLL_RATE_DEG, roll_rate);
-    shape_input(joystick->yaw, yaw_min, yaw_max, yaw_center, deadzone, MIN_YAW_RATE_DEG, MAX_YAW_RATE_DEG, yaw_rate);
-}
-
-static float map(float x, float in_min, float in_max, float out_min, float out_max)
-{
-    // prevent division by 0
-    if (in_max - in_min == 0)
-    {
-        return 0;
-    }
-
-    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
-}
-
 static void tune(joystick_t * joysticks, float * kp, float * ki, float * kd, uint32_t * last_tune, oled_active_tune_param_t * active_tune_parameter)
 {
+    // this needs to be fixed
     float ** new_k;
 
     uint32_t curr_tick = HAL_GetTick();

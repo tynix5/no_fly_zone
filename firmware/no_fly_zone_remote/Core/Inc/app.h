@@ -5,15 +5,6 @@
 #include "stm32l4xx_hal.h"
 #include "stm32l4xx_hal_tim.h"
 
-typedef struct
-{
-    uint16_t throttle;
-    uint16_t yaw;
-    uint16_t pitch;
-    uint16_t roll;
-
-} joystick_t;
-
 void app_init(ADC_HandleTypeDef * hadc,
               DMA_HandleTypeDef * hdma,
               I2C_HandleTypeDef * hi2c,
