@@ -1,8 +1,9 @@
 #MicroXplorer Configuration settings - do not modify
 ADC1.Channel-1\#ChannelRegularConversion=ADC_CHANNEL_6
 ADC1.Channel-2\#ChannelRegularConversion=ADC_CHANNEL_7
+ADC1.DMAContinuousRequests=ENABLE
 ADC1.ExternalTrigConv=ADC_EXTERNALTRIGCONV_T3_TRGO
-ADC1.IPParameters=Rank-1\#ChannelRegularConversion,master,Channel-1\#ChannelRegularConversion,SamplingTime-1\#ChannelRegularConversion,NbrOfConversionFlag,Rank-2\#ChannelRegularConversion,Channel-2\#ChannelRegularConversion,SamplingTime-2\#ChannelRegularConversion,NbrOfConversion,ExternalTrigConv
+ADC1.IPParameters=Rank-1\#ChannelRegularConversion,master,Channel-1\#ChannelRegularConversion,SamplingTime-1\#ChannelRegularConversion,NbrOfConversionFlag,Rank-2\#ChannelRegularConversion,Channel-2\#ChannelRegularConversion,SamplingTime-2\#ChannelRegularConversion,NbrOfConversion,ExternalTrigConv,DMAContinuousRequests
 ADC1.NbrOfConversion=2
 ADC1.NbrOfConversionFlag=1
 ADC1.Rank-1\#ChannelRegularConversion=1
@@ -391,7 +392,7 @@ TIM2.Prescaler=0
 TIM3.IPParameters=TIM_MasterOutputTrigger,Prescaler,Period
 TIM3.Period=2047
 TIM3.Prescaler=8191
-TIM3.TIM_MasterOutputTrigger=TIM_TRGO_RESET
+TIM3.TIM_MasterOutputTrigger=TIM_TRGO_UPDATE
 TIM5.AutoReloadPreload=TIM_AUTORELOAD_PRELOAD_ENABLE
 TIM5.Channel-PWM\ Generation2\ CH2=TIM_CHANNEL_2
 TIM5.Channel-PWM\ Generation3\ CH3=TIM_CHANNEL_3

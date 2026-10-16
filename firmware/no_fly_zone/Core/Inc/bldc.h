@@ -4,25 +4,27 @@
 #include "dshot.h"
 #include "generic_types.h"
 
-#define DSHOT_TIM_FREQ      84000000
+#define DSHOT_TIM_FREQ 84000000
 
 /*
 // from a top down view of the quad
-//      front_left    front_right
+//  front_left (CCW)    front_right (CW)
 //              \      /
 //               \ _ /
 //                | |
 //                |_|
 //               /   \
 //              /     \     
-//      back_left     back_right
+// back_left (CW)     back_right (CCW)
 */
 
-typedef struct {
+typedef struct
+{
     uint16_t speed_fl, speed_fr, speed_bl, speed_br;
 } bldc_throttle_t;
 
-typedef struct {
+typedef struct
+{
     dshot_handle_t motor_fl, motor_fr, motor_bl, motor_br;
     bldc_throttle_t throttles;
 } bldc_handle_t;
