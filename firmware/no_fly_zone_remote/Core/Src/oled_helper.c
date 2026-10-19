@@ -25,7 +25,7 @@ void oled_update(ssd1306_handle_t * holed, oled_params_t * params)
         break;
 
     case PAGE_JOYSTICK:
-        oled_show_joysticks(holed, params->joysticks, params->is_calibrating);
+        oled_show_joysticks(holed, params->throttle_norm, params->pitch_norm, params->roll_norm, params->yaw_norm, params->is_calibrating);
         break;
 
     case PAGE_TUNE_PID:
@@ -115,36 +115,36 @@ void oled_show_battery(ssd1306_handle_t * holed, uint8_t tx_batt, uint8_t rx_bat
     ssd1306_write_str(holed, 77, 20, percent);
 }
 
-void oled_show_joysticks(ssd1306_handle_t * holed, joystick_t * joysticks, bool is_calibrating)
+void oled_show_joysticks(ssd1306_handle_t * holed, float throttle_norm, float pitch_norm, float roll_norm, float yaw_norm, bool is_calibrating)
 {
-    uint8_t throttle_new = (joysticks->throttle / 4096.0) * 100;
-    uint8_t pitch_new = (joysticks->pitch / 4096.0) * 100;
-    uint8_t roll_new = (joysticks->roll / 4096.0) * 100;
-    uint8_t yaw_new = (joysticks->yaw / 4096.0) * 100;
+    const uint8_t joystick_radius = 18;
 
     // show current position of left joystick
-    const uint8_t joystick_r = 18;
-    ssd1306_draw_circle(holed, 25, 32, 22);
+    const int8_t left_joystick_center_x = 25;
+    const int8_t left_joystick_center_y = 32;
+    ssd1306_draw_circle(holed, left_joystick_center_x, left_joystick_center_y, 22); // draw joystick perimeter
 
-    int8_t left_x = (int8_t)round((double)(yaw_new - 50) / 100.0 * joystick_r * 2);
-    int8_t left_y = (int8_t)round((double)(throttle_new - 50) / 100.0 * joystick_r * 2);
-    ssd1306_draw_filled_circle(holed, left_x + 25, left_y + 32, 3);
+    // draw where joystick is currently located
+    uint8_t left_x = (uint8_t)((int8_t)(yaw_norm * (float)joystick_radius) + left_joystick_center_x);
+    uint8_t left_y = (uint8_t)((int8_t)(-throttle_norm * (float)joystick_radius) + left_joystick_center_y); // inverted y because it increases as it goes down
+    ssd1306_draw_filled_circle(holed, left_x, left_y, 3);
 
     // right joystick
-    ssd1306_draw_circle(holed, 100, 32, 22);
+    const int8_t right_joystick_center_x = 100;
+    const int8_t right_joystick_center_y = 32;
+    ssd1306_draw_circle(holed, right_joystick_center_x, right_joystick_center_y, 22);
 
-    int8_t right_x = (int8_t)round((double)(roll_new - 50) / 100.0 * joystick_r * 2);
-    int8_t right_y = (int8_t)round((double)(pitch_new - 50) / 100.0 * joystick_r * 2);
-    ssd1306_draw_filled_circle(holed, right_x + 100, right_y + 32, 3);
+    uint8_t right_x = (uint8_t)((int8_t)(roll_norm * (float)joystick_radius) + right_joystick_center_x);
+    uint8_t right_y = (uint8_t)((int8_t)(-pitch_norm * (float)joystick_radius) + right_joystick_center_y);
+    ssd1306_draw_filled_circle(holed, right_x, right_y, 3);
 
     if (is_calibrating)
         ssd1306_write_str(holed, 52, 28, "CAL");
 }
 
-void oled_show_pid(ssd1306_handle_t * holed, float kp, float ki, float kd, oled_active_tune_param_t tuning_param)
+void oled_show_pid(ssd1306_handle_t * holed, float kp, float ki, float kd, active_tune_param_t tuning_param)
 {
-
-    // find a better way to do this
+    // indicate parameter being actively tuned
     if (tuning_param == ACTIVE_TUNE_KP)
         ssd1306_draw_filled_circle(holed, 10, 20, 3);
     else if (tuning_param == ACTIVE_TUNE_KI)
@@ -152,37 +152,31 @@ void oled_show_pid(ssd1306_handle_t * holed, float kp, float ki, float kd, oled_
     else if (tuning_param == ACTIVE_TUNE_KD)
         ssd1306_draw_filled_circle(holed, 10, 40, 3);
 
-    ssd1306_write_str(holed, 20, 20, "Kp: ");
-    ssd1306_write_str(holed, 20, 30, "Ki: ");
-    ssd1306_write_str(holed, 20, 40, "Kd: ");
-
+    // convert from floats to integers able to displayed on OLED
     int kp_rounded = (int)roundf(kp * 100.0f);
-
     int kp_ten = kp_rounded / 1000;
     int kp_one = kp_rounded / 100 % 10;
     int kp_tenth = kp_rounded / 10 % 10;
     int kp_hundredth = kp_rounded % 10;
-
     char kp_buff[6] = { kp_ten + '0', kp_one + '0', '.', kp_tenth + '0', kp_hundredth + '0', '\0' };
+    ssd1306_write_str(holed, 20, 20, "Kp: ");
+    ssd1306_write_str(holed, 52, 20, kp_buff);
 
     int ki_rounded = (int)roundf(ki * 100.0f);
-
     int ki_ten = ki_rounded / 1000;
     int ki_one = ki_rounded / 100 % 10;
     int ki_tenth = ki_rounded / 10 % 10;
     int ki_hundredth = ki_rounded % 10;
-
     char ki_buff[6] = { ki_ten + '0', ki_one + '0', '.', ki_tenth + '0', ki_hundredth + '0', '\0' };
+    ssd1306_write_str(holed, 20, 30, "Ki: ");
+    ssd1306_write_str(holed, 52, 30, ki_buff);
 
     int kd_rounded = (int)roundf(kd * 100.0f);
-
     int kd_ten = kd_rounded / 1000;
     int kd_one = kd_rounded / 100 % 10;
     int kd_tenth = kd_rounded / 10 % 10;
     int kd_hundredth = kd_rounded % 10;
-
     char kd_buff[6] = { kd_ten + '0', kd_one + '0', '.', kd_tenth + '0', kd_hundredth + '0', '\0' };
-    ssd1306_write_str(holed, 52, 20, kp_buff);
-    ssd1306_write_str(holed, 52, 30, ki_buff);
+    ssd1306_write_str(holed, 20, 40, "Kd: ");
     ssd1306_write_str(holed, 52, 40, kd_buff);
 }

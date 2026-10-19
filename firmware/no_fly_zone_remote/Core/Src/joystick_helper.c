@@ -1,4 +1,5 @@
 #include "joystick_helper.h"
+#include "stm32l4xx_hal.h"
 #include <math.h>
 
 void joysticks_calibration_init(joystick_calibration_t * joystick_cal)
@@ -148,5 +149,60 @@ void joysticks_calibrate(joystick_t * joystick, joystick_calibration_t * joystic
     else if (joystick_cal->millis_get_tick() - joystick_cal->last_calibration_ms >= JOYSTICK_CALIBRATION_T_MS)
     {
         joystick_cal->is_calibrating = false;
+    }
+}
+
+void joysticks_tune_pid(float pitch_norm, float roll_norm, float * kp, float * ki, float * kd, uint32_t * last_tune_ms, active_tune_param_t * active_tune_parameter)
+{
+    float ** new_k;
+
+    uint32_t curr_tick = HAL_GetTick(); // replace?
+
+    // user-friendly update speed
+    if (curr_tick - *last_tune_ms > JOYSTICK_TUNE_UPDATE_T_MS)
+    {
+        *last_tune_ms = curr_tick;
+
+        if (roll_norm > 0.5f) // go to next parameter for tuning
+        {
+            if (++(*active_tune_parameter) > ACTIVE_TUNE_KD)
+                *active_tune_parameter = ACTIVE_TUNE_NONE;
+        }
+        else if (roll_norm < -0.5f) // go to previous parameter for tuning
+        {
+            if (--(*active_tune_parameter) < ACTIVE_TUNE_NONE)
+                *active_tune_parameter = ACTIVE_TUNE_KD;
+        }
+
+        switch (*active_tune_parameter)
+        {
+        case ACTIVE_TUNE_KP:
+            // new_k holds address of kp
+            // *new_k holds value of kp, which is address of x
+            // **new_k holds value of *kp, which is x
+            new_k = &kp;
+            break;
+        case ACTIVE_TUNE_KI:
+            new_k = &ki;
+            break;
+        case ACTIVE_TUNE_KD:
+            new_k = &kd;
+            break;
+        default:
+            return;
+        }
+        if (pitch_norm < 0.75f && pitch_norm > 0.25f)
+            **new_k += 0.01;
+        else if (pitch_norm >= 0.75f)
+            **new_k += 0.05;
+        else if (pitch_norm > -0.75f && pitch_norm < -0.25f)
+            **new_k -= 0.01;
+        else if (pitch_norm <= -0.75f)
+            **new_k -= 0.05;
+
+        if (**new_k > 99.99)
+            **new_k = 99.985;
+        else if (**new_k < 0.0)
+            **new_k = 0.0;
     }
 }

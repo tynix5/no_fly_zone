@@ -119,7 +119,6 @@ arm_state_t arm_state_remote = ARM_STATE_DISARMED;
 void encoder_callback(encoder_handle_t * henc, encoder_event_t enc_event, encoder_event_t sw_event);
 void bms_callback(bms_handle_t * bms, bms_event_t event);
 static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * q_des);
-static void tune(joystick_t * joysticks, float * kp, float * ki, float * kd, uint32_t * last_tune, oled_active_tune_param_t * active_tune);
 
 void app_init(ADC_HandleTypeDef * hadc,
               DMA_HandleTypeDef * hdma,
@@ -184,14 +183,13 @@ void app(void)
     uint8_t quad_batt_lvl = 0;
 
     uint32_t last_tune_update = 0;
-    oled_active_tune_param_t curr_tune_param = ACTIVE_TUNE_NONE;
+    active_tune_param_t curr_tune_param = ACTIVE_TUNE_NONE;
 
     joystick_t joysticks;
 
     uint32_t last_arm_state_update = 0;
 
     uint32_t adc_samples_cnt = 0;
-    bool rf_recent_tx = false;
 
     quaternion_t q_des = { .q1 = 1, .q2 = 0, .q3 = 0, .q4 = 0 };
 
@@ -266,7 +264,7 @@ void app(void)
                 if (page == PAGE_JOYSTICK)
                     joysticks_calibrate(&joysticks, &joysticks_cal);
                 else if (page == PAGE_TUNE_PID)
-                    tune(&joysticks, &kp, &ki, &kd, &last_tune_update, &curr_tune_param);
+                    joysticks_tune_pid(pitch_norm, roll_norm, &kp, &ki, &kd, &last_tune_update, &curr_tune_param);
 
                 key = DISARMED_KEY;
                 break;
@@ -333,31 +331,32 @@ void app(void)
                 }
             }
 
-            rf_recent_tx = true;
+            // update OLED after RF packet has been recently transmitted as not to disturb packet frequency
+            // since ADC is running at 200Hz, OLED updates at 20Hz
+            if (adc_samples_cnt % 10 == 0)
+            {
+                oled_params_t oled_info = {
+                    .page = page,
+                    .arm_state = arm_state_remote,
+                    .rx_batt = quad_batt_lvl,
+                    .tx_batt = remote_batt_lvl,
+                    .joysticks = &joysticks,
+                    .throttle_norm = throttle_norm,
+                    .pitch_norm = pitch_norm,
+                    .roll_norm = roll_norm,
+                    .yaw_norm = yaw_norm,
+                    .kp = kp,
+                    .ki = ki,
+                    .kd = kd,
+                    .tuning_param = curr_tune_param,
+                    .is_calibrating = joysticks_cal.is_calibrating,
+                };
+
+                oled_update(&oled, &oled_info);
+            }
         }
 
         encoder_update(&enc);
-
-        // update OLED after RF packet has been recently transmitted as not to disturb packet frequency
-        // since ADC is running at 200Hz, OLED updates at 20Hz
-        if (adc_samples_cnt % 10 == 0 && rf_recent_tx)
-        {
-            oled_params_t oled_info = {
-                .joysticks = &joysticks,
-                .page = page,
-                .rx_batt = quad_batt_lvl,
-                .tx_batt = remote_batt_lvl,
-                .arm_state = arm_state_remote,
-                .kp = kp,
-                .ki = ki,
-                .kd = kd,
-                .tuning_param = curr_tune_param,
-                .is_calibrating = joysticks_cal.is_calibrating,
-            };
-
-            oled_update(&oled, &oled_info);
-            rf_recent_tx = false;
-        }
     }
 }
 
@@ -437,62 +436,6 @@ static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * 
 
     // normalize
     quat_normalize(q_des);
-}
-
-static void tune(joystick_t * joysticks, float * kp, float * ki, float * kd, uint32_t * last_tune, oled_active_tune_param_t * active_tune_parameter)
-{
-    // this needs to be fixed
-    float ** new_k;
-
-    uint32_t curr_tick = HAL_GetTick();
-
-    // user-friendly update speed
-    if (curr_tick - *last_tune > 250)
-    {
-        *last_tune = curr_tick;
-
-        if (joysticks->roll > 3000) // go to next parameter for tuning
-        {
-            if (++(*active_tune_parameter) > ACTIVE_TUNE_KD)
-                *active_tune_parameter = ACTIVE_TUNE_NONE;
-        }
-        else if (joysticks->roll < 1000) // go to previous parameter for tuning
-        {
-            if (--(*active_tune_parameter) < ACTIVE_TUNE_NONE)
-                *active_tune_parameter = ACTIVE_TUNE_KD;
-        }
-
-        switch (*active_tune_parameter)
-        {
-        case ACTIVE_TUNE_KP:
-            // new_k holds address of kp
-            // *new_k holds value of kp, which is address of x
-            // **new_k holds value of *kp, which is x
-            new_k = &kp;
-            break;
-        case ACTIVE_TUNE_KI:
-            new_k = &ki;
-            break;
-        case ACTIVE_TUNE_KD:
-            new_k = &kd;
-            break;
-        default:
-            return;
-        }
-        if (joysticks->pitch < 1500 && joysticks->pitch > 500)
-            **new_k += 0.01;
-        else if (joysticks->pitch <= 500)
-            **new_k += 0.05;
-        else if (joysticks->pitch > 2500 && joysticks->pitch < 3250)
-            **new_k -= 0.01;
-        else if (joysticks->pitch >= 3250)
-            **new_k -= 0.05;
-
-        if (**new_k > 99.99)
-            **new_k = 99.985;
-        else if (**new_k < 0.0)
-            **new_k = 0.0;
-    }
 }
 
 void delay_us(uint32_t delay)
