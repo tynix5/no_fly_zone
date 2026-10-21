@@ -45,7 +45,7 @@ oled_pages_t page = PAGE_BATT_LVL;
 uint8_t sw_state = 0;
 
 volatile bool adc_dr = false;
-float kp = 0, ki = 0, kd = 0;
+float kp = 50.0f, ki = 0.0f, kd = 0.0f; // preload K values for easier manipulation
 
 void delay_us(uint32_t delay);
 void delay_ms(uint32_t delay);
@@ -224,7 +224,15 @@ void app(void)
             if (arm_state_remote == ARM_STATE_ARMED)
                 arm_state_remote = ARM_STATE_DISARMED;
             else if (arm_state_remote == ARM_STATE_DISARMED)
+            {
                 arm_state_remote = ARM_STATE_ARMED;
+
+                // reset
+                q_des.q1 = 1.0f;
+                q_des.q2 = 0.0f;
+                q_des.q3 = 0.0f;
+                q_des.q4 = 0.0f;
+            }
 
             curr_tune_param = ACTIVE_TUNE_NONE;
             last_arm_state_update = millis_get_tick();
@@ -282,7 +290,9 @@ void app(void)
 
                 // convert angular rates to desired quaternion
                 euler_rates_to_quat(roll_rate_rps, pitch_rate_rps, yaw_rate_rps, &q_des);
-                // CDC_Transmit_FS((uint8_t *)&q_des, sizeof(q_des));
+
+                float data[] = { q_des.q1, q_des.q2, q_des.q3, q_des.q4 };
+                CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
                 // if throttle < halfway, throttle = 0
                 // handle jerking, accleration, etc
