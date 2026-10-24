@@ -39,7 +39,7 @@ void joysticks_condition(joystick_t * joystick, joystick_calibration_t * joystic
     normalize_input(joystick->throttle, joystick_cal->throttle_min, joystick_cal->throttle_mid, joystick_cal->throttle_max, deadzone, 0, throttle_cond);
     normalize_input(joystick->pitch, joystick_cal->pitch_min, joystick_cal->pitch_mid, joystick_cal->pitch_max, deadzone, beta, pitch_cond);
     normalize_input(joystick->roll, joystick_cal->roll_min, joystick_cal->roll_mid, joystick_cal->roll_max, deadzone, beta, roll_cond);
-    normalize_input(joystick->yaw, joystick_cal->yaw_min, joystick_cal->yaw_mid, joystick_cal->yaw_max, deadzone, beta, yaw_cond);
+    normalize_input(joystick->yaw, joystick_cal->yaw_min, joystick_cal->yaw_mid, joystick_cal->yaw_max, 0.10f, beta, yaw_cond); // slightly higher deadzone for yaw
 
     // correct sign changes
     *throttle_cond = -(*throttle_cond);
@@ -191,14 +191,19 @@ void joysticks_tune_pid(float pitch_norm, float roll_norm, float * kp, float * k
         default:
             return;
         }
-        if (pitch_norm < 0.75f && pitch_norm > 0.25f)
-            **new_k += 0.01;
+
+        if (pitch_norm >= 0.25f && pitch_norm < 0.40f)
+            **new_k += 0.01f;
+        else if (pitch_norm >= 0.40f && pitch_norm < 0.75f)
+            **new_k += 0.10f;
         else if (pitch_norm >= 0.75f)
-            **new_k += 0.05;
-        else if (pitch_norm > -0.75f && pitch_norm < -0.25f)
-            **new_k -= 0.01;
+            **new_k += 1.00f;
+        else if (pitch_norm > -0.40f && pitch_norm <= -0.25f)
+            **new_k -= 0.01f;
+        else if (pitch_norm > -0.75f && pitch_norm <= -0.4f)
+            **new_k -= 0.10f;
         else if (pitch_norm <= -0.75f)
-            **new_k -= 0.05;
+            **new_k -= 1.00f;
 
         if (**new_k > 99.99)
             **new_k = 99.985;

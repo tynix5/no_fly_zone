@@ -19,6 +19,9 @@
 #include "rf_structs.h"
 #include "ssd1306.h"
 
+// change to 1 for acrobatic mode
+#define ACROBATIC_MODE 0
+
 #define RF_TX_ADDR 0xE7E7E7E7
 #define RF_RX_ADDR 0xE7E7E7E7
 
@@ -45,7 +48,7 @@ oled_pages_t page = PAGE_BATT_LVL;
 uint8_t sw_state = 0;
 
 volatile bool adc_dr = false;
-float kp = 50.0f, ki = 0.0f, kd = 0.0f; // preload K values for easier manipulation
+float kp = 15.0f, ki = 0.3f, kd = 0.5f; // preload K values for easier manipulation
 
 void delay_us(uint32_t delay);
 void delay_ms(uint32_t delay);
@@ -119,6 +122,8 @@ arm_state_t arm_state_remote = ARM_STATE_DISARMED;
 void encoder_callback(encoder_handle_t * henc, encoder_event_t enc_event, encoder_event_t sw_event);
 void bms_callback(bms_handle_t * bms, bms_event_t event);
 static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * q_des);
+static void pos_to_euler_non_acro(float pitch_norm, float roll_norm, float yaw_norm, quaternion_t * q_d); // change name for sure
+float yaw_ang_des;
 
 void app_init(ADC_HandleTypeDef * hadc,
               DMA_HandleTypeDef * hdma,
@@ -232,6 +237,7 @@ void app(void)
                 q_des.q2 = 0.0f;
                 q_des.q3 = 0.0f;
                 q_des.q4 = 0.0f;
+                yaw_ang_des = 0.0f;
             }
 
             curr_tune_param = ACTIVE_TUNE_NONE;
@@ -279,25 +285,32 @@ void app(void)
 
             case ARM_STATE_ARMED:
 
-                // map joystick positions to euler angle rates
-                float pitch_rate_dps, roll_rate_dps, yaw_rate_dps;
-                pos_to_euler_rates(pitch_norm, roll_norm, yaw_norm, &pitch_rate_dps, &roll_rate_dps, &yaw_rate_dps);
+                if (ACROBATIC_MODE)
+                {
+                    // map joystick positions to euler angle rates
+                    float pitch_rate_dps, roll_rate_dps, yaw_rate_dps;
+                    pos_to_euler_rates(pitch_norm, roll_norm, yaw_norm, &pitch_rate_dps, &roll_rate_dps, &yaw_rate_dps);
 
-                // convert to radians per second
-                float pitch_rate_rps = pitch_rate_dps * M_PI / 180.0;
-                float roll_rate_rps = roll_rate_dps * M_PI / 180.0;
-                float yaw_rate_rps = yaw_rate_dps * M_PI / 180.0;
+                    // convert to radians per second
+                    float pitch_rate_rps = pitch_rate_dps * M_PI / 180.0;
+                    float roll_rate_rps = roll_rate_dps * M_PI / 180.0;
+                    float yaw_rate_rps = yaw_rate_dps * M_PI / 180.0;
 
-                // convert angular rates to desired quaternion
-                euler_rates_to_quat(roll_rate_rps, pitch_rate_rps, yaw_rate_rps, &q_des);
-
-                float data[] = { q_des.q1, q_des.q2, q_des.q3, q_des.q4 };
-                CDC_Transmit_FS((uint8_t *)data, sizeof(data));
+                    // convert angular rates to desired quaternion
+                    euler_rates_to_quat(roll_rate_rps, pitch_rate_rps, yaw_rate_rps, &q_des);
+                }
+                else
+                {
+                    pos_to_euler_non_acro(pitch_norm, roll_norm, yaw_norm, &q_des);
+                }
 
                 // if throttle < halfway, throttle = 0
                 // handle jerking, accleration, etc
                 /* Consider having centered throttle mean no vertical velocity, below center = descend, above center = ascend */
                 pos_to_throttle(throttle_norm, &shaped_throttle);
+
+                float data[] = { q_des.q1, q_des.q2, q_des.q3, q_des.q4 };
+                CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
                 key = ARMED_KEY;
                 break;
@@ -446,6 +459,28 @@ static void euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * 
 
     // normalize
     quat_normalize(q_des);
+}
+
+static void pos_to_euler_non_acro(float pitch_norm, float roll_norm, float yaw_norm, quaternion_t * q_d)
+{
+    const float max_pitch_deg = 45.0f;
+    const float max_roll_deg = 45.0f;
+    const float max_yaw_dps = 180.0f;
+
+    float pitch_ang_deg = pitch_norm * max_pitch_deg;
+    float roll_ang_deg = roll_norm * max_roll_deg;
+    yaw_ang_des += yaw_norm * max_yaw_dps * ADC_SAMP_DT;
+
+    if (yaw_ang_des > 360.0f)
+        yaw_ang_des -= 360.0f;
+    else if (yaw_ang_des < 0.0f)
+        yaw_ang_des += 360.0f;
+
+    float pitch_ang_rad = pitch_ang_deg * M_PI / 180.0;
+    float roll_ang_rad = roll_ang_deg * M_PI / 180.0;
+    float yaw_ang_rad = yaw_ang_des * M_PI / 180.0;
+
+    euler_to_quat(-pitch_ang_rad, roll_ang_rad, yaw_ang_rad, q_d);
 }
 
 void delay_us(uint32_t delay)
