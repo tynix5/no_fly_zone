@@ -16,19 +16,19 @@ The OLED is navigable using both the joysticks and encoder as inputs. Rotating t
  
 1. Remote and Quadcopter Battery Level (Page 1)
 <p align="center">
-  <img src="../../screenshots/remote_batt_screen.jpeg" width="800" style="transform: rotate(270deg)"><br>
+  <img src="../../screenshots/remote_batt_screen.jpeg" width="800"><br>
   <em>LiPo battery monitor for remote and quadcopter. Pulling left joystick down and pressing encoder will ARM/DISARM quadcopter</em>
 </p>
 
 2. Joystick Calibration (Page 2)
 <p align="center">
-  <img src="../../screenshots/remote_cal_screen.jpeg" width="800" style="transform: rotate(270deg)"><br>
+  <img src="../../screenshots/remote_cal_screen.jpeg" width="800"><br>
   <em>Pressing encoder switch allows for user to recalibrate joystick ranges</em>
 </p>
 
 3. PID Tuning (Page 3)
 <p align="center">
-  <img src="../../screenshots/remote_pid_screen.jpeg" width="800" style="transform: rotate(270deg)"><br>
+  <img src="../../screenshots/remote_pid_screen.jpeg" width="800"><br>
   <em>Using the right joystick, user can modify PID values</em>
 </p>
 
@@ -37,3 +37,8 @@ The OLED is navigable using both the joysticks and encoder as inputs. Rotating t
   <img src="../../screenshots/no_fly_zone_remote_diagram_fig.png" width="800"><br>
   <em>Software flowchart (draw.io)</em>
 </p>
+
+### Safety Features
+1. Software watchdogs were used to monitor internal CPU state, resetting on timeouts.
+2. In the event of low battery on either the quadcopter or remote, the quadcopter would immediately shut down.
+3. Arm/Disarm modes on the remote control preventing inadvertent throttling.
