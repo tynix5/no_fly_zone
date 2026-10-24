@@ -8,3 +8,5 @@ firmware/no_fly_zone/.cache
 firmware/no_fly_zone_remote/.cache
 hardware/**/.history
 hardware/**/*backups
+firmware/no_fly_zone/compile_commands.json
+firmware/no_fly_zone_remote/compile_commands.json

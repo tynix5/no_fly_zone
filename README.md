@@ -1,5 +1,5 @@
 # no_fly_zone
-A custom designed quadcopter and remote featuring a custom STM32-based flight controller PCB, STM32-based remote control PCB, sensor fusion, quaternion-based attitude control, wireless communication, and digital ESC communication.
+A custom designed quadcopter and remote combination featuring a custom STM32-based flight controller PCB and STM32-based remote control PCB that combine aspects of sensor fusion, quaternion-based attitude control, wireless communication, and digital ESC communication.
 
 <p align="center">
   <img src="screenshots/quad_top_6.jpeg" width="800"><br>
@@ -27,7 +27,7 @@ A custom designed quadcopter and remote featuring a custom STM32-based flight co
 </p>
 
 ## Overview
-This project focused on the design and implementation of a custom quadcopter flight controller paired with a complementary custom remote from the ground-up. Rather than buying an off-the-shelf flight controller and remote, almost all aspects of both the flight controller and remote were custom made. In summary...
+This project focused on the design and implementation of a custom quadcopter flight controller paired with a complementary custom remote from the ground-up. Rather than buying an off-the-shelf flight controller and remote, almost all aspects of both the flight controller and remote were custom made. I decided to do this project because I have always been fascinated by drones, and I liked the challenge it would bring. It ties together all aspects of signal integrity, systems, low-level firmware, and digital signal processing. Below is a summary of some of the aspects this project entailed...
 
 ### Custom Features
 - Flight controller PCB
@@ -39,7 +39,7 @@ This project focused on the design and implementation of a custom quadcopter fli
 - Sensor libraries (IMU, Barometer, etc.)
 - Encoder and OLED display libraries for remote control
 
-No off-the-shelf software or firmware was used, but some aspects of flight controller design were inspired by PixHawk and betaflight. Components purchased off-shelf include the ESC, four BLDC motors, quadcopter frame, and board components.
+No off-the-shelf software or firmware was used, but some aspects of flight controller design were inspired by PixHawk and Betaflight. Components purchased off-shelf include the ESC, four BLDC motors, quadcopter frame, and board components.
 
 ## Folder Overview
 ### /firmware
@@ -56,9 +56,10 @@ Contains the 3D files for the spacers used to separate the STM32 flight controll
 ### /screenshots
 Contains relevant screenshots for those in other READMEs
 
-## Safety
-While this project was a lot of fun to design and build, there were a few safety precautions in place. 
-1. Software watchdogs were used in both the remote and quadcopter to monitor internal CPU state, resetting on timeouts.
-2. Software timeouts were implemented on the quadcopter to stop all motors if communication with remote failed, or sensor data became stale.
-3. In the event of low battery on either the quadcopter or remote, the quadcopter would immediately shut down.
-4. Arm/Disarm modes on the remote control preventing inadvertent throttling.
+## BOM
+All components purchased off-shelf can be found in the `bom.txt` file, and the BOMs for the PCBs can be found in the `.csv` files in their respective folders.
+
+## Improvements
+- Use of magnetometer or GPS unit for absolute heading
+- Use of barometer for altitude hold
+- Improved remote control PCB for options for nonvolatile storage for PID parameters and extra transmission power
