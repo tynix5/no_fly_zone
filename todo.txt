@@ -1,45 +1,29 @@
 no_fly_zone_remote
-1. how to speed up loop time
-2. add handling if not receiving ack packets
-3. add ssd1306_busy() function and do not attempt to create oled buffer if busy
-4. add watchdog
-5. add delay_ms and get_ms_tick replacing HAL_GetTick() (make sure timer is 32-bits)
-6. add a joystick tuning page (page 2?)
+1. add handling if not receiving ack packets
+2. remove generic_types from makefile after complete
+3. Fix README captions
 
 no_fly_zone
-Note. worst case scenario loop time is below 200us
-1. Determine tau_z direction based on motor placement/direction
-2. attempt recovery for failure to init
-3. place torque commands into matrix for cleaner math
-4. test to see why data is being sent faster than 200Hz?
+1. attempt recovery for failure to init
+2. place torque commands into matrix for cleaner math
+3. handle IMU needing to "warm up" for accurate readings after wakeup
 
 stm32_lib
-1. check for null pointers in delay_ms and delay_us (nrf)
-2. dynamic memory allocation for dshot?
-3. add comments to all libraries
-4. clean up encoder implementation --> messy, hard to read
-5. make public
-6. Modify all libraries to separate API calls from physical layer calls
-7. Add functionality for DMA, polling/blocking, EXTI, etc to libraries
-8. Change universal return type to status_t
-9. Change all structs *params to *_handle_t
-10. Rename all private variables in struct starting with _
-11. determine whether to use dynamic allocation or allow user to give presized array for pointers for buffers
-12. change all functions to have form part_function() instead of genericName_function()
-13. add input output functionality comments to all functions
-14. specific enums instead of generic
-15. user owns memory and passes it to struct
-16. use const as much as possible
-17. update comments on function input/output
-18. static asserts
-19. static size config for dshot
-20. stdbool.h for Boolean
-21. check for init in functions 
-22. units in variable names
+1. Match BMS, encoder, SSD1306, IIS2MDC with other libraries
+2. clean up encoder implementation --> messy, hard to read
+3. make public
+4. user owns memory and passes it to struct
+5. static asserts
+6. static size config for dshot
+7. add custom delays in encoder
+8. add logging library?
+9. reset nrf24 status reg after opening tx/rx pipe?
+10. add consts in ssd1306
 
 Hardware
-1. Determine and set motor CW/CCW directions
-2. Verify VBAT_SENSE and CURR_SENSE ranges on test board
+1. V2 of remote board with nonvolatile memory for constants, power amplifier, more status LEDs
+2. test all remaining nRF24L01 and STM32F446 chips to see if working
+3. 3d print new enclosure for remote
 
 Github
 1. Add BOM for both remote and flight controller
