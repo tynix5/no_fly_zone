@@ -26,5 +26,7 @@ Hardware
 3. 3d print new enclosure for remote
 
 Github
-1. Add BOM for both remote and flight controller
-2. Add more detail and pictures to READMEs
+1. Add block diagram for no_fly_zone
+2. Fix .csv BOMs
+3. Add README for scripts
+4. add 3d files
