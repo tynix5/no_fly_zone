@@ -21,7 +21,7 @@
 #include "quaternion.h"
 #include "rf_structs.h"
 
-#define BETA    0.2f
+#define BETA    0.25f
 #define DELTA_T 1 / 1660.0 // replace with actual variable
 
 #define RF_TX_ADDR 0xC2C2C2C2
@@ -91,11 +91,13 @@ lsm6ds3tr_handle_t imu = {
     .cs = IMU_CS_Pin,
     .delay_ms = delay_ms,
 
+    // DO NOT use high pass filter on gyroscope. It suppresses sustained rotations and causes 
+    // internal orienation model to drift back towards origin
     .gyro_handle_t = {
         .odr = LSM6DS3TR_ODR_G_1_66KHZ,
         .fs = LSM6DS3TR_FS_G_1000DPS,
-        .filt = LSM6DS3TR_HPF_EN,
-        .cutoff = LSM6DS3TR_HP_G_16MILHZ,
+        .filt = LSM6DS3TR_NO_FILTER,
+        // .cutoff = LSM6DS3TR_HP_G_65MILHZ,
     },
 
     .accel_handle_t = {
@@ -219,7 +221,7 @@ void app_init(ADC_HandleTypeDef * hadc,
     hiwdg->Instance = IWDG;
     hiwdg->Init.Prescaler = IWDG_PRESCALER_4;
     hiwdg->Init.Reload = 3999;
-    // HAL_IWDG_Init(hiwdg); // T = 0.5s
+    HAL_IWDG_Init(hiwdg); // T = 0.5s
     /**********************************************************************************************************/
 
     /***************************************** Configure DShot channels ***************************************/
@@ -259,6 +261,15 @@ void app(void)
 
     bool has_been_disarmed = 0;
 
+    float last_w_x_err = 0, last_w_y_err = 0, last_w_z_err = 0;
+    float w_x_err_sum = 0, w_y_err_sum = 0, w_z_err_sum = 0;
+    float prev_dt = 0;
+
+    uint32_t imu_samples = 0;
+    float w_x_bias = 0.0f;
+    float w_y_bias = 0.0f;
+    float w_z_bias = 0.0f;
+
     while (1)
     {
         HAL_IWDG_Refresh(iwdg);
@@ -285,7 +296,6 @@ void app(void)
                 float vbat_percent;
                 float norm_adc = (float)vbat_sense_running_sum / (float)N_VBAT_SENSE_BUFF / ADC_RES_CNT;
                 bms_update(&bms, norm_adc, &vbat_percent);
-
                 quad_batt_lvl = (uint8_t)vbat_percent;
             }
         }
@@ -312,10 +322,6 @@ void app(void)
             if (temp_size == sizeof(rf_packet_params_t))
             {
                 pkt_cnt++;
-
-                // char rf_entry[50];
-                // uint8_t len = sprintf(rf_entry, "[RF] Received at %d\n", micros_get_tick());
-                // CDC_Transmit_FS(rf_entry, len);
 
                 switch (temp.key)
                 {
@@ -350,37 +356,46 @@ void app(void)
         if (imu_dr)
         {
             imu_dr = false;
-
             float a_x, a_y, a_z, w_x, w_y, w_z;
 
             // update orientation estimation
             lsm6ds3tr_read_gyro_radps(&imu, &w_x, &w_y, &w_z);
             lsm6ds3tr_read_accel_mps2(&imu, &a_x, &a_y, &a_z);
 
-            float dt = (float)(this_imu_tick_us - last_imu_tick_us) / 1000000.0f; // convert sample delay from us to s
-            madgwick_update(a_x, a_y, a_z, w_x, w_y, w_z, BETA, dt, &state);
+            /*
+            if (imu_samples < 3000)
+            {
+                imu_samples++;
+
+                w_x_bias += w_x;
+                w_y_bias += w_y;
+                w_z_bias += w_z;
+            }
+            else
+            {
+                w_x -= w_x_bias / imu_samples;
+                w_y -= w_y_bias / imu_samples;
+                w_z -= w_z_bias / imu_samples;
+            }
+            */
+
+            prev_dt = (float)(this_imu_tick_us - last_imu_tick_us) / 1000000.0f; // convert sample delay from us to s
+            madgwick_update(a_x, a_y, a_z, w_x, w_y, w_z, BETA, prev_dt, &state);
 
             // stream orientation over USB (for debugging)
-            // float data[] = { state._q_state.q1, state._q_state.q2, state._q_state.q3, state._q_state.q4 };
-            // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
+            float data[] = { state._q_state.q1, state._q_state.q2, state._q_state.q3, state._q_state.q4 };
+            CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
             last_imu_tick_us = this_imu_tick_us;
-
-            // char imu_entry[50];
-            // uint8_t len = sprintf(imu_entry, "[IMU] Interrupt at %d\n", micros_get_tick());
-            // CDC_Transmit_FS(imu_entry, len);
         }
 
+        // barometer data currently not being used
         if (bar_dr)
         {
             bar_dr = false;
 
             float hpa;
             lps25hb_read_press_hpa(&bar, &hpa);
-
-            // char bar_entry[50];
-            // uint8_t len = sprintf(bar_entry, "[BAR] Interrupt at %d\n", micros_get_tick());
-            // CDC_Transmit_FS(bar_entry, len);
         }
 
         // if quadcopter sensors or RF communication is disrupted, go into failsafe
@@ -402,28 +417,16 @@ void app(void)
         {
             arm_state_quad = ARM_STATE_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_RF;
-
-            // char rf_timeout[50];
-            // uint8_t len = sprintf(rf_timeout, "[RF] Timeout at %d\n", micros_get_tick());
-            // CDC_Transmit_FS(rf_timeout, len);
         }
         if (((tick_us - last_imu_tick_us_local) / 1000) > IMU_FAILSAFE_TIMEOUT_MS)
         {
             arm_state_quad = ARM_STATE_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_IMU;
-
-            // char imu_timeout[50];
-            // uint8_t len = sprintf(imu_timeout, "[IMU] Timeout at %d\n", micros_get_tick());
-            // CDC_Transmit_FS(imu_timeout, len);
         }
         if (tick_ms - last_bar_tick_ms_local > BAR_FAILSAFE_TIMEOUT_MS)
         {
             arm_state_quad = ARM_STATE_FAILSAFE;
             failsafe_cause |= FAILSAFE_TYPE_BAR;
-
-            // char bar_timeout[50];
-            // uint8_t len = sprintf(bar_timeout, "[BAR] Timeout at %d\n", micros_get_tick());
-            // CDC_Transmit_FS(bar_timeout, len);
         }
 
         switch (arm_state_quad)
@@ -431,9 +434,6 @@ void app(void)
         case ARM_STATE_DISARMED:
             // stop motors
             bldc_stop(&bldc);
-
-            // uint16_t data[] = { 0, 0, 0, 0 };
-            // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
             HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_SET);
             HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
@@ -444,32 +444,59 @@ void app(void)
 
             // calculate quaternion error and convert to a rate error
             float w_x_err, w_y_err, w_z_err;
-            quaternion_t q_des_sample = { .q1 = 1, .q2 = 0, .q3 = 0, .q4 = 0 };
-            madgwick_curr_to_des(&state, q_des_sample, k_att, &w_x_err, &w_y_err, &w_z_err);
-            // madgwick_curr_to_des(&state, pkt.q_des, k_att, &w_x_err, &w_y_err, &w_z_err);
+            madgwick_curr_to_des(&state, pkt.q_des, k_att, &w_x_err, &w_y_err, &w_z_err);
 
             // run PID on ew --> place these into a matrix for cleaner math?
             // convert rate error to torque/speed commands
+            float tau_x = pkt.kp * w_x_err;
+            float tau_y = pkt.kp * w_y_err;
+            float tau_z = pkt.kp * w_z_err;
 
-            // use 0 for testing
-            float test_kp = 0.0;
-            float tau_x = test_kp * w_x_err;
-            float tau_y = test_kp * w_y_err;
-            float tau_z = test_kp * w_z_err;
+            // do not accumulate error when the drone is not moving
+            if (pkt.throttle > 200)
+            {
+                w_x_err_sum += w_x_err * prev_dt;
+                w_y_err_sum += w_y_err * prev_dt;
+                w_z_err_sum += w_z_err * prev_dt;
+            }
+
+            // clamp integrals
+            const float w_max_err_sum = 500.0f;
+
+            if (w_x_err_sum > w_max_err_sum)
+                w_x_err_sum = w_max_err_sum;
+            else if (w_x_err_sum < -w_max_err_sum)
+                w_x_err_sum = -w_max_err_sum;
+
+            if (w_y_err_sum > w_max_err_sum)
+                w_y_err_sum = w_max_err_sum;
+            else if (w_y_err_sum < -w_max_err_sum)
+                w_y_err_sum = -w_max_err_sum;
+
+            if (w_z_err_sum > w_max_err_sum)
+                w_z_err_sum = w_max_err_sum;
+            else if (w_z_err_sum < -w_max_err_sum)
+                w_z_err_sum = -w_max_err_sum;
+
+            // do not divide by zero when performing PID
+            if (prev_dt != 0.0f)
+            {
+                tau_x += pkt.ki * w_x_err_sum + pkt.kd * (w_x_err - last_w_x_err) / prev_dt;
+                tau_y += pkt.ki * w_y_err_sum + pkt.kd * (w_y_err - last_w_y_err) / prev_dt;
+                tau_z += pkt.ki * w_z_err_sum + pkt.kd * (w_z_err - last_w_z_err) / prev_dt;
+            }
+
+            last_w_x_err = w_x_err;
+            last_w_y_err = w_y_err;
+            last_w_z_err = w_z_err;
 
             // mix torque/speed commands
-            // float throttle_test = 1000;
-            // bldc_mix(&bldc, throttle_test, tau_x, tau_y, tau_z);
             bldc_mix(&bldc, pkt.throttle, tau_x, tau_y, tau_z);
-
             bldc_send(&bldc);
 
-            // uint16_t data[] = { bldc.throttles.speed_fl, bldc.throttles.speed_fr, bldc.throttles.speed_bl, bldc.throttles.speed_br };
-            // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
-
             HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_SET);
-            HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(STAT3_GPIO_Port, STAT3_Pin, GPIO_PIN_SET);
 
             break;
 

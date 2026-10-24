@@ -67,10 +67,23 @@ status_t bldc_mix(bldc_handle_t * bldc, uint16_t throttle, float tau_x, float ta
     // tau x if side to side filt
     // tau y is forward/back tilt
     // tau z is yaw
-    bldc->throttles.speed_fl = throttle + tau_x + tau_y + tau_z;
-    bldc->throttles.speed_fr = throttle - tau_x + tau_y - tau_z;
-    bldc->throttles.speed_bl = throttle + tau_x - tau_y - tau_z;
-    bldc->throttles.speed_br = throttle - tau_x - tau_y + tau_z;
+
+    const uint16_t throttle_min = 200;
+
+    bldc->throttles.speed_fl = throttle;
+    bldc->throttles.speed_fr = throttle;
+    bldc->throttles.speed_bl = throttle;
+    bldc->throttles.speed_br = throttle;
+
+    // only add additional flight forces when throttle is above a certain amount
+    if (throttle > throttle_min)
+    {
+        // potentially limit throttle to 1900?
+        bldc->throttles.speed_fl += tau_x + tau_y + tau_z;
+        bldc->throttles.speed_fr += -tau_x + tau_y - tau_z;
+        bldc->throttles.speed_bl += tau_x - tau_y - tau_z;
+        bldc->throttles.speed_br += -tau_x - tau_y + tau_z;
+    }
 
     bldc_clamp(&bldc->throttles.speed_fl, DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE);
     bldc_clamp(&bldc->throttles.speed_fr, DSHOT_MIN_THROTTLE, DSHOT_MAX_THROTTLE);
