@@ -20,7 +20,7 @@ typedef struct
     uint8_t tx_batt;
     uint8_t rx_batt;
 
-    joystick_t * joysticks;
+    joysticks_t * joysticks;
     float throttle_norm, pitch_norm, roll_norm, yaw_norm;
 
     float kp, ki, kd;
