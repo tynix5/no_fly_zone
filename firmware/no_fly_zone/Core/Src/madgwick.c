@@ -1,13 +1,53 @@
 #include "madgwick.h"
 
-static void accel_to_body_frame(float x, float y, float z, madgwick_state_t * state);            // dimensionless units (will be normalized)
-static void gyro_to_body_frame(float x_rad, float y_rad, float z_rad, madgwick_state_t * state); // must be in radians per second
-static void compute_err(madgwick_state_t * state, float * fg);
-static void compute_jacobian_transpose(madgwick_state_t * state, float * JgT);
+/**************************************************** Madgwick Helper Functions *****************************************************/
+/* Convert accelerometer world frame to body frame */
+/* [in] x - accelerometer X */
+/* [in] y - accelerometer Y */
+/* [in] z - accelerometer Z */
+/* [out] state - madgwick structure handle */
+static void accel_to_body_frame(const float x, const float y, const float z, madgwick_state_t * state); // dimensionless units (will be normalized)
+
+/* Convert gyroscope world frame to body frame */
+/* [in] x_rad - gyroscope X (rad/s) */
+/* [in] y_rad - gyroscope Y (rad/s) */
+/* [in] z_rad - gyroscope Z (rad/s) */
+/* [out] state - madgwick structure handle */
+static void gyro_to_body_frame(const float x_rad, const float y_rad, const float z_rad, madgwick_state_t * state); // must be in radians per second
+
+/* Calculate difference between predicted and measured state */
+/* [in] state - madgwick structure handle */
+/* [out] fg - error function */
+static void compute_err(const madgwick_state_t * state, float * fg);
+
+/* Calculate Jacobian to determine how output changes in relation to input and transpose matrix */
+/* [in] state - madgwick structure handle */
+/* [out] JgT - jacobian transpose matrix */
+static void compute_jacobian_transpose(const madgwick_state_t * state, float * JgT);
+
+/* Computer quaternion derivative for gyro */
+/* [in/out] state - madgwick structure handle */
 static void compute_gyro_dot(madgwick_state_t * state);
-static void compute_gradient(madgwick_state_t * state, float * JgT, float * fg, quaternion_t * q_grad);
+
+/* Compute gradient - estimates how uncertainty propagates from input to output */
+/* [in] state - madgwick structure handle */
+/* [in] JgT - jacobian transpose */
+/* [in] fg - error function */
+/* [out] q_grad - gradient */
+static void compute_gradient(const madgwick_state_t * state, float * JgT, float * fg, quaternion_t * q_grad);
+
+/* Compute final orientation estimation */
+/* [in] state - madgwick structure handle */
+/* [in] q_grad - gradient */
 static void compute_estimate(madgwick_state_t * state, quaternion_t q_grad);
+
+/* Clamp input between min and mix */
+/* [in] in - input */
+/* [in] min - minimum value */
+/* [in] max - maximum value */
+/* [return] clamped output */
 static float clamp(float in, float min, float max);
+/************************************************************************************************************************************/
 
 /* Body frame on current quadcopter
                     ^ X
@@ -53,7 +93,8 @@ void madgwick_init(madgwick_state_t * state)
     state->_q_state.q4 = 0.0f;
 }
 
-void madgwick_update(float a_x, float a_y, float a_z, float w_x, float w_y, float w_z, float beta, float dt, madgwick_state_t * state)
+void madgwick_update(
+    const float a_x, const float a_y, const float a_z, const float w_x, const float w_y, const float w_z, const float beta, const float dt, madgwick_state_t * state)
 {
     float fg[3], JgT[12];
     quaternion_t q_grad;
@@ -81,7 +122,7 @@ void madgwick_update(float a_x, float a_y, float a_z, float w_x, float w_y, floa
     state->_q_state_prev.q4 = state->_q_state.q4;
 }
 
-void madgwick_curr_to_des(madgwick_state_t * state, quaternion_t q_des, float k_att, float * w_x_err, float * w_y_err, float * w_z_err)
+void madgwick_curr_to_des(const madgwick_state_t * state, const quaternion_t q_des, const float k_att, float * w_x_err, float * w_y_err, float * w_z_err)
 {
     // compute rotation needed to move from current orientation to desired orientation
     // calculate quaternion error
@@ -119,13 +160,13 @@ void madgwick_curr_to_des(madgwick_state_t * state, quaternion_t q_des, float k_
     w_y_des = clamp(w_y_des, -max_rate_rps, max_rate_rps);
     w_z_des = clamp(w_z_des, -max_rate_rps, max_rate_rps);
 
-    // remove measured body-frame angular rates from desired rotation speed
+    // calculate difference between current and desired rotation rates
     *w_x_err = w_x_des - state->_q_gyro.q2;
     *w_y_err = w_y_des - state->_q_gyro.q3;
     *w_z_err = w_z_des - state->_q_gyro.q4;
 }
 
-static void accel_to_body_frame(float x, float y, float z, madgwick_state_t * state)
+static void accel_to_body_frame(const float x, const float y, const float z, madgwick_state_t * state)
 {
     // align sensor coordinates to body frame coordinates
     // check these rotations line up correctly sign-wise
@@ -135,7 +176,7 @@ static void accel_to_body_frame(float x, float y, float z, madgwick_state_t * st
     state->_q_accel.q4 = z;
 }
 
-static void gyro_to_body_frame(float x_rad, float y_rad, float z_rad, madgwick_state_t * state)
+static void gyro_to_body_frame(const float x_rad, const float y_rad, const float z_rad, madgwick_state_t * state)
 {
     // align sensor coordinates to body frame coordinates
     // check these rotations line up correctly sign-wise
@@ -145,7 +186,7 @@ static void gyro_to_body_frame(float x_rad, float y_rad, float z_rad, madgwick_s
     state->_q_gyro.q4 = -z_rad;
 }
 
-static void compute_err(madgwick_state_t * state, float * fg)
+static void compute_err(const madgwick_state_t * state, float * fg)
 {
     // compute f_g(q, s_a)
     // this is the error function: it calculates difference between predicted and measured state
@@ -155,7 +196,7 @@ static void compute_err(madgwick_state_t * state, float * fg)
     fg[2] = 2.0f * (0.5f - state->_q_state_prev.q2 * state->_q_state_prev.q2 - state->_q_state_prev.q3 * state->_q_state_prev.q3) - state->_q_accel.q4;
 }
 
-static void compute_jacobian_transpose(madgwick_state_t * state, float * JgT)
+static void compute_jacobian_transpose(const madgwick_state_t * state, float * JgT)
 {
     /*
         Jg(q) = {   -2q_y, 2q_z, -2q_w, 2q_x,
@@ -189,7 +230,7 @@ static void compute_gyro_dot(madgwick_state_t * state)
     quat_mult_scalar(&state->_q_gyro_dot, 0.5f);
 }
 
-static void compute_gradient(madgwick_state_t * state, float * JgT, float * fg, quaternion_t * q_grad)
+static void compute_gradient(const madgwick_state_t * state, float * JgT, float * fg, quaternion_t * q_grad)
 {
     arm_matrix_instance_f32 JgT_mat = { .numRows = 4, .numCols = 3, .pData = JgT };
     arm_matrix_instance_f32 fg_mat = { .numRows = 3, .numCols = 1, .pData = fg };

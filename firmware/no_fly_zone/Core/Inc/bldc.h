@@ -26,12 +26,47 @@ typedef struct
     bldc_throttle_t throttles;
 } bldc_handle_t;
 
-dshot_status_t bldc_init(bldc_handle_t * bldc, TIM_HandleTypeDef * htim2, TIM_HandleTypeDef * htim5);
+/* Initialize DShot channels for all four motors */
+/* [in/out] bldc - BLDC structure handle */
+/* [in] htim2 - TIM2 handle */
+/* [in] htim5 - TIM5 handle */
+/* [return] DSHOT_OK if channels open successfully */
+dshot_status_t bldc_init(bldc_handle_t * bldc, const TIM_HandleTypeDef * htim2, const TIM_HandleTypeDef * htim5);
+
+/* Stop all motor DMA transfers */
+/* [in/out] bldc - BLDC structure handle */
+/* [return] DSHOT_OK if DMA channels disable */
 dshot_status_t bldc_disable(bldc_handle_t * bldc);
+
+/* Start all DMA transfers */
+/* [in/out] bldc - BLDC structure handle */
+/* [return] DSHOT_OK if start is successful */
 dshot_status_t bldc_enable(bldc_handle_t * bldc);
+
+/* Set all throttle values to zero (disarmed) */
+/* [in/out] bldc - BLDC structure handle */
+/* [return] DSHOT_OK if stop is successful */
 dshot_status_t bldc_stop(bldc_handle_t * bldc);
-dshot_status_t bldc_mix(bldc_handle_t * bldc, uint16_t throttle, float tau_x, float tau_y, float tau_z);
+
+/* Stop all motor DMA transfers */
+/* [in/out] bldc - BLDC structure handle */
+/* [in] throttle - DShot throttle value [0, 2048] */
+/* [in] tau_x - DShot speed change in X direction */
+/* [in] tau_y - DShot speed change in Y direction */
+/* [in] tau_z - DShot speed change in Z direction */
+/* [return] DSHOT_OK if successful */
+dshot_status_t bldc_mix(bldc_handle_t * bldc, const uint16_t throttle, const float tau_x, const float tau_y, const float tau_z);
+
+/* Queue new DShot packets for all motors */
+/* [in/out] bldc - BLDC structure handle */
+/* [return] DSHOT_OK if send is successful */
 dshot_status_t bldc_send(bldc_handle_t * bldc);
-dshot_status_t bldc_clamp(uint16_t * throttle, uint16_t min, uint16_t max);
+
+/* Clamp DShot throttles to specified range */
+/* [in/out] throttle - DShot throttle */
+/* [in] min - minimum value in range */
+/* [in] max - maximum value in range */
+/* [return] DSHOT_OK */
+dshot_status_t bldc_clamp(uint16_t * throttle, const uint16_t min, const uint16_t max);
 
 #endif

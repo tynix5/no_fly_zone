@@ -138,16 +138,41 @@ typedef struct
 } dshot_handle_t;
 
 /* Set timer ARR's, calculate CCRx values need for '1' and '0' bits, and determine length of DMA buffers */
-dshot_status_t dshot_init(dshot_handle_t * dshot, TIM_HandleTypeDef * htim, uint32_t ch, uint32_t f_tim, dshot_bitrate_t bitrate, dshot_freq_t f_pkt);
+/* [in/out] dshot - DShot structure handle */
+/* [in] htim - DShot timer handle */
+/* [in] ch - timer channel */
+/* [in] f_tim - timer frequency */
+/* [in] bitrate - DShot bit rate */
+/* [in] f_pkt - DShot packet frequency */
+/* [return] DSHOT_OK if parameters are valid */
+dshot_status_t
+dshot_init(dshot_handle_t * dshot, const TIM_HandleTypeDef * htim, const uint32_t ch, const uint32_t f_tim, const dshot_bitrate_t bitrate, const dshot_freq_t f_pkt);
+
 /* Start continuously sending DShot packets on selected channels */
+/* [in/out] dshot - DShot structure handle */
+/* [return] DSHOT_OK if DMA started, DSHOT_DMA_BUSY if HAL fails */
 dshot_status_t dshot_start(dshot_handle_t * dshot);
-/* Disable DShot packets */
+
+/* Request to disable DShot packets */
+/* [in/out] dshot - DShot structure handle */
+/* [return] DSHOT_OK */
 dshot_status_t dshot_stop(dshot_handle_t * dshot);
+
 /* Encode throttle amount into 17-byte packet */
-dshot_status_t dshot_queue(dshot_handle_t * dshot, uint16_t throttle, uint8_t tel_req);
+/* [in/out] dshot - DShot structure handle */
+/* [in] throttle - DShot throttle/command value in range [0, 2048] */
+/* [in] tel_req - DShot telemetry request bit */
+/* [return] DSHOT_OK if parameters valid */
+dshot_status_t dshot_queue(dshot_handle_t * dshot, const uint16_t throttle, const uint8_t tel_req);
+
 /* DShot DMA complete callback - occurs when first _buff_len bytes have been sent from DMA to TIM; place into HAL_TIM_PWM_PulseFinishedCallback */
+/* [in/out] dshot - DShot structure handle */
+/* [in] htim - HAL timer returned in callback */
 void dshot_complete_callback(dshot_handle_t * dshot, TIM_HandleTypeDef * htim);
+
 /* DShot DMA half complete callback - occurs second _buff_len bytes have been sent from DMA to TIM; place into HAL_TIM_PWM_PulseFinishedHalfCpltCallback */
+/* [in/out] dshot - DShot structure handle */
+/* [in] htim - HAL timer returned in callback */
 void dshot_half_complete_callback(dshot_handle_t * dshot, TIM_HandleTypeDef * htim);
 
 #endif

@@ -1,7 +1,7 @@
 #include "bldc.h"
 #include "dshot.h"
 
-dshot_status_t bldc_init(bldc_handle_t * bldc, TIM_HandleTypeDef * htim2, TIM_HandleTypeDef * htim5)
+dshot_status_t bldc_init(bldc_handle_t * bldc, const TIM_HandleTypeDef * htim2, const TIM_HandleTypeDef * htim5)
 {
     // configure all channels
     dshot_status_t status;
@@ -76,7 +76,7 @@ dshot_status_t bldc_stop(bldc_handle_t * bldc)
     return bldc_send(bldc);
 }
 
-dshot_status_t bldc_mix(bldc_handle_t * bldc, uint16_t throttle, float tau_x, float tau_y, float tau_z)
+dshot_status_t bldc_mix(bldc_handle_t * bldc, const uint16_t throttle, const float tau_x, const float tau_y, const float tau_z)
 {
     // determine directions for tau_x, tau_y, tau_z
     // tau_x requires left motors to match, right motors to match

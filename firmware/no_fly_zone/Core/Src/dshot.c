@@ -1,16 +1,48 @@
 #include "dshot.h"
 #include <string.h>
 
-/************************* DShot Helper Functions **********************/
+/**************************************************** DShot Helper Functions *****************************************************/
+/* Initialize DShot buffers with all 0's */
+/* [in/out] dshot - DShot structure handle */
 static void dshot_init_buffer(dshot_handle_t * dshot);
-static dshot_status_t dshot_encode_pkt(dshot_handle_t * dshot, uint16_t throttle, uint8_t tel_req);
-static void dshot_calculate_crc(dshot_handle_t * dshot, uint16_t data);
-static dshot_status_t dshot_get_bitrate(dshot_bitrate_t bitrate, uint32_t * br);
-static dshot_status_t dshot_get_pkt_freq(dshot_freq_t frequency, uint32_t * f);
+
+/* Turn raw throttle and telemetry request into DShot packet */
+/* [in/out] dshot - DShot structure handle */
+/* [in] throttle - DShot throttle/command value in range [0, 2048] */
+/* [in] tel_req - DShot telemetry request bit */
+/* [return] DSHOT_OK if parameters valid */
+static dshot_status_t dshot_encode_pkt(dshot_handle_t * dshot, const uint16_t throttle, const uint8_t tel_req);
+
+/* Calculate packet CRC by XORing nibbles together */
+/* [in/out] dshot - DShot structure handle */
+/* [in] data - raw packet with throttle and telemetry request */
+static void dshot_calculate_crc(dshot_handle_t * dshot, const uint16_t data);
+
+/* Get DShot bitrate based on enum */
+/* [in] dshot - DShot structure handle */
+/* [return] DSHOT_OK if parameters valid */
+static dshot_status_t dshot_get_bitrate(const dshot_bitrate_t bitrate, uint32_t * br);
+
+/* Get packet frequency based on enum */
+/* [in] dshot - DShot structure handle */
+/* [return] DSHOT_OK if parameters valid */
+static dshot_status_t dshot_get_pkt_freq(const dshot_freq_t frequency, uint32_t * f);
+
+/* Set timer ARR based on bitrate and timer frequency */
+/* [in/out] dshot - DShot structure handle */
+/* [return] DSHOT_OK if parameters valid */
 static dshot_status_t dshot_set_timer_period(dshot_handle_t * dshot);
+
+/* Set DMA buffer length based on DShot bitrate and packet frequency */
+/* [in/out] dshot - DShot structure handle */
+/* [return] DSHOT_OK if parameters valid */
 static dshot_status_t dshot_set_pkt_len(dshot_handle_t * dshot);
+
+/* Set bit high and low times based on timer ARR */
+/* [in/out] dshot - DShot structure handle */
+/* [return] DSHOT_OK if parameters valid */
 static dshot_status_t dshot_set_bit_times(dshot_handle_t * dshot);
-/***********************************************************************/
+/*********************************************************************************************************************************/
 
 // Execution order
 // 1. Enable TIM + DMA
@@ -31,7 +63,8 @@ static dshot_status_t dshot_set_bit_times(dshot_handle_t * dshot);
 // - after the first packet is sent, the HalfCpltCallback is called, allowing a new packet to be placed into the first half of the buffer
 // - after the second packet is sent, the CpltCallback is called, allowing a new packet to be placed into the second half of the buffer
 
-dshot_status_t dshot_init(dshot_handle_t * dshot, TIM_HandleTypeDef * htim, uint32_t ch, uint32_t f_tim, dshot_bitrate_t bitrate, dshot_freq_t f_pkt)
+dshot_status_t
+dshot_init(dshot_handle_t * dshot, const TIM_HandleTypeDef * htim, const uint32_t ch, const uint32_t f_tim, const dshot_bitrate_t bitrate, const dshot_freq_t f_pkt)
 {
     // PREREQUISITE
     // MUST HAVE DMA STREAMS FOR EACH TIMER AND CHANNEL ENABLED IN CUBEMX (CIRCULAR MODE)
@@ -81,7 +114,7 @@ dshot_status_t dshot_stop(dshot_handle_t * dshot)
     return DSHOT_OK;
 }
 
-dshot_status_t dshot_queue(dshot_handle_t * dshot, uint16_t throttle, uint8_t tel_req)
+dshot_status_t dshot_queue(dshot_handle_t * dshot, const uint16_t throttle, const uint8_t tel_req)
 {
     if (throttle > DSHOT_MAX_THROTTLE)
         return DSHOT_INVALID_CFG;
@@ -165,7 +198,7 @@ void dshot_half_complete_callback(dshot_handle_t * dshot, TIM_HandleTypeDef * ht
     }
 }
 
-/************************* DShot Helper Functions **********************/
+/**************************************************** DShot Helper Functions *****************************************************/
 static void dshot_init_buffer(dshot_handle_t * dshot)
 {
     // set all memory locations to zero to begin
@@ -173,7 +206,7 @@ static void dshot_init_buffer(dshot_handle_t * dshot)
     memset(dshot->_next_pkt, 0, sizeof(dshot->_next_pkt));
 }
 
-static dshot_status_t dshot_encode_pkt(dshot_handle_t * dshot, uint16_t throttle, uint8_t tel_req)
+static dshot_status_t dshot_encode_pkt(dshot_handle_t * dshot, const uint16_t throttle, const uint8_t tel_req)
 {
     uint16_t data = (throttle << 1) | !!tel_req;
     uint8_t ind = 0;
@@ -196,7 +229,7 @@ static dshot_status_t dshot_encode_pkt(dshot_handle_t * dshot, uint16_t throttle
     return DSHOT_OK;
 }
 
-static void dshot_calculate_crc(dshot_handle_t * dshot, uint16_t data)
+static void dshot_calculate_crc(dshot_handle_t * dshot, const uint16_t data)
 {
     // XOR all nibbles together
     uint8_t crc = ((data ^ (data >> 4)) ^ (data >> 8)) & 0x0f;
@@ -216,7 +249,7 @@ static void dshot_calculate_crc(dshot_handle_t * dshot, uint16_t data)
     }
 }
 
-static dshot_status_t dshot_get_bitrate(dshot_bitrate_t bitrate, uint32_t * br)
+static dshot_status_t dshot_get_bitrate(const dshot_bitrate_t bitrate, uint32_t * br)
 {
     // select bit rate
     switch (bitrate)
@@ -240,7 +273,7 @@ static dshot_status_t dshot_get_bitrate(dshot_bitrate_t bitrate, uint32_t * br)
     return DSHOT_OK;
 }
 
-static dshot_status_t dshot_get_pkt_freq(dshot_freq_t frequency, uint32_t * f)
+static dshot_status_t dshot_get_pkt_freq(const dshot_freq_t frequency, uint32_t * f)
 {
     // select packet frequency
     switch (frequency)
@@ -312,4 +345,4 @@ static dshot_status_t dshot_set_bit_times(dshot_handle_t * dshot)
 
     return DSHOT_OK;
 }
-/***********************************************************************/
+/*********************************************************************************************************************************/
