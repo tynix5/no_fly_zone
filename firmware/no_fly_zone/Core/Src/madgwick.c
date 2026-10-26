@@ -7,6 +7,7 @@ static void compute_jacobian_transpose(madgwick_state_t * state, float * JgT);
 static void compute_gyro_dot(madgwick_state_t * state);
 static void compute_gradient(madgwick_state_t * state, float * JgT, float * fg, quaternion_t * q_grad);
 static void compute_estimate(madgwick_state_t * state, quaternion_t q_grad);
+static float clamp(float in, float min, float max);
 
 /* Body frame on current quadcopter
                     ^ X
@@ -104,12 +105,19 @@ void madgwick_curr_to_des(madgwick_state_t * state, quaternion_t q_des, float k_
     float e_z = 2.0 * sign * q_err.q4;
 
     // convert attitude error into desired angular rates
+    // k_att determines how aggressively the controller requests rotation back to desired attitude
+    // Ex: k_att = 10 --> If attitude error is 1 degree, desired rate is 10 degrees/s
+    // k_att = 2 --> If attitude error is 1 degree, desired rate is 2 degrees/s
     float w_x_des = e_x * k_att;
     float w_y_des = e_y * k_att;
     float w_z_des = e_z * k_att;
 
-    // clamp rates to certain range
-    // clamp(w_x_des, max_rate, min_rate)
+    // clamp rates
+    const float max_rate_dps = 200.0f;
+    const float max_rate_rps = max_rate_dps * M_PI / 180.0f;
+    w_x_des = clamp(w_x_des, -max_rate_rps, max_rate_rps);
+    w_y_des = clamp(w_y_des, -max_rate_rps, max_rate_rps);
+    w_z_des = clamp(w_z_des, -max_rate_rps, max_rate_rps);
 
     // remove measured body-frame angular rates from desired rotation speed
     *w_x_err = w_x_des - state->_q_gyro.q2;
@@ -209,4 +217,14 @@ static void compute_estimate(madgwick_state_t * state, quaternion_t q_grad)
     quat_mult_scalar(&state->_q_state_dot, state->_dt);
     quat_add(state->_q_state_prev, state->_q_state_dot, &state->_q_state);
     quat_normalize(&state->_q_state);
+}
+
+static float clamp(float in, float min, float max)
+{
+    if (in < min)
+        return min;
+    else if (in > max)
+        return max;
+    else
+        return in;
 }
