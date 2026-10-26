@@ -13,6 +13,9 @@ Sensor data is received from the LSM6DS3TR IMU and LPS25HB barometer over SPI, a
 Of course, there are a few more things present in the code, but as a general overview, it is fairly accurate. The amount of firmware required to fly a drone is surprisingly little. One of these things are some of the safety features onboard. If samples from the IMU and barometer are not sampled fast enough or communication fails, the quadcopter will failsafe. If communication with the remote is lost, the quadcopter will failsafe. If the battery level onboard reaches dangerously low voltage, the quadcopter will failsafe. In failsafe mode, motors will stop and the onboard LEDs indicate the source of the error.
 
 ## Block Diagram
+<p align="center">
+  <img src="../../screenshots/no_fly_zone_diagram_drawio.png" width="2400"><br>
+</p>
 
 ## Additional Features
 ### Battery "Management" System (BMS)
@@ -25,4 +28,4 @@ The battery level is sampled using the ADC, but since current draw changes in ac
 4. Arm/Disarm modes on the remote control preventing inadvertent throttling.
 
 ## Improvements
-Currently, the barometer is not used, but in later revisions, can be used for a form of altitude hold.
+Currently, the barometer is not used, but in later revisions can be used for a form of altitude hold.
