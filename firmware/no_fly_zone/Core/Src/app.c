@@ -13,7 +13,6 @@
 
 #include "bldc.h"
 #include "bms.h"
-#include "dshot.h"
 #include "lps25hb.h"
 #include "lsm6ds3tr.h"
 #include "madgwick.h"
@@ -35,6 +34,8 @@
 
 #define ADC_RES_CNT       4096.0f
 #define N_VBAT_SENSE_BUFF 10
+
+#define N_IMU_BIAS_SAMPLES 3000
 
 uint32_t micros_get_tick();
 uint32_t millis_get_tick();
@@ -96,8 +97,7 @@ lsm6ds3tr_handle_t imu = {
     .gyro_handle_t = {
         .odr = LSM6DS3TR_ODR_G_1_66KHZ,
         .fs = LSM6DS3TR_FS_G_1000DPS,
-        .filt = LSM6DS3TR_NO_FILTER,
-        // .cutoff = LSM6DS3TR_HP_G_65MILHZ,
+        .filt = LSM6DS3TR_LPF_EN,   // use LPF for high-frequency vibrations from motors
     },
 
     .accel_handle_t = {
@@ -257,7 +257,7 @@ void app(void)
     rf_packet_params_t pkt;
     rf_ack_params_t ack;
 
-    const float k_att = 10.0;
+    const float k_att = 5.0;
 
     bool has_been_disarmed = 0;
 
@@ -265,10 +265,9 @@ void app(void)
     float w_x_err_sum = 0, w_y_err_sum = 0, w_z_err_sum = 0;
     float prev_dt = 0;
 
-    uint32_t imu_samples = 0;
-    float w_x_bias = 0.0f;
-    float w_y_bias = 0.0f;
-    float w_z_bias = 0.0f;
+    uint32_t imu_samples_cnt = 0;
+    float w_x_bias = 0.0f, w_y_bias = 0.0f, w_z_bias = 0.0f;
+    float w_x_bias_accum = 0.0f, w_y_bias_accum = 0.0f, w_z_bias_accum = 0.0f;
 
     while (1)
     {
@@ -356,35 +355,40 @@ void app(void)
         if (imu_dr)
         {
             imu_dr = false;
+            imu_samples_cnt++;
+
             float a_x, a_y, a_z, w_x, w_y, w_z;
 
             // update orientation estimation
             lsm6ds3tr_read_gyro_radps(&imu, &w_x, &w_y, &w_z);
             lsm6ds3tr_read_accel_mps2(&imu, &a_x, &a_y, &a_z);
 
-            /*
-            if (imu_samples < 3000)
+            // discard first N samples to allow time for IMU to settle
+            // accumulate average sensor reading for second N samples
+            // quadcopter should be powered on while stationary on a level surface to calibrate
+            if (imu_samples_cnt > N_IMU_BIAS_SAMPLES && imu_samples_cnt < 2 * N_IMU_BIAS_SAMPLES)
             {
-                imu_samples++;
+                w_x_bias_accum += w_x;
+                w_y_bias_accum += w_y;
+                w_z_bias_accum += w_z;
+            }
+            else if (imu_samples_cnt == 2 * N_IMU_BIAS_SAMPLES) // calculate bias (average)
+            {
+                w_x_bias = w_x_bias_accum / (float)N_IMU_BIAS_SAMPLES;
+                w_y_bias = w_y_bias_accum / (float)N_IMU_BIAS_SAMPLES;
+                w_z_bias = w_z_bias_accum / (float)N_IMU_BIAS_SAMPLES;
+            }
 
-                w_x_bias += w_x;
-                w_y_bias += w_y;
-                w_z_bias += w_z;
-            }
-            else
-            {
-                w_x -= w_x_bias / imu_samples;
-                w_y -= w_y_bias / imu_samples;
-                w_z -= w_z_bias / imu_samples;
-            }
-            */
+            w_x -= w_x_bias;
+            w_y -= w_y_bias;
+            w_z -= w_z_bias;
 
             prev_dt = (float)(this_imu_tick_us - last_imu_tick_us) / 1000000.0f; // convert sample delay from us to s
             madgwick_update(a_x, a_y, a_z, w_x, w_y, w_z, BETA, prev_dt, &state);
 
             // stream orientation over USB (for debugging)
-            float data[] = { state._q_state.q1, state._q_state.q2, state._q_state.q3, state._q_state.q4 };
-            CDC_Transmit_FS((uint8_t *)data, sizeof(data));
+            // float data[] = { state._q_state.q1, state._q_state.q2, state._q_state.q3, state._q_state.q4 };
+            // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
             last_imu_tick_us = this_imu_tick_us;
         }
@@ -493,6 +497,24 @@ void app(void)
             // mix torque/speed commands
             bldc_mix(&bldc, pkt.throttle, tau_x, tau_y, tau_z);
             bldc_send(&bldc);
+
+            // float data[] = {
+            //     (float)bldc.throttles.speed_fl, (float)bldc.throttles.speed_bl, (float)bldc.throttles.speed_fr, (float)bldc.throttles.speed_br, w_x_err, w_y_err, w_z_err
+            // };
+            // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
+            float data[] = { pkt.q_des.q1,
+                             pkt.q_des.q2,
+                             pkt.q_des.q3,
+                             pkt.q_des.q4,
+                             state._q_state.q1,
+                             state._q_state.q2,
+                             state._q_state.q3,
+                             state._q_state.q4,
+                             (float)bldc.throttles.speed_fl,
+                             (float)bldc.throttles.speed_bl,
+                             (float)bldc.throttles.speed_fr,
+                             (float)bldc.throttles.speed_br };
+            CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
             HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
             HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
