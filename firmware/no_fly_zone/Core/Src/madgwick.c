@@ -40,13 +40,6 @@ static void compute_gradient(const madgwick_state_t * state, float * JgT, float 
 /* [in] state - madgwick structure handle */
 /* [in] q_grad - gradient */
 static void compute_estimate(madgwick_state_t * state, quaternion_t q_grad);
-
-/* Clamp input between min and mix */
-/* [in] in - input */
-/* [in] min - minimum value */
-/* [in] max - maximum value */
-/* [return] clamped output */
-static float clamp(float in, float min, float max);
 /************************************************************************************************************************************/
 
 /* Body frame on current quadcopter
@@ -166,6 +159,16 @@ void madgwick_curr_to_des(const madgwick_state_t * state, const quaternion_t q_d
     *w_z_err = w_z_des - state->_q_gyro.q4;
 }
 
+float clamp(float in, float min, float max)
+{
+    if (in < min)
+        return min;
+    else if (in > max)
+        return max;
+    else
+        return in;
+}
+
 static void accel_to_body_frame(const float x, const float y, const float z, madgwick_state_t * state)
 {
     // align sensor coordinates to body frame coordinates
@@ -258,14 +261,4 @@ static void compute_estimate(madgwick_state_t * state, quaternion_t q_grad)
     quat_mult_scalar(&state->_q_state_dot, state->_dt);
     quat_add(state->_q_state_prev, state->_q_state_dot, &state->_q_state);
     quat_normalize(&state->_q_state);
-}
-
-static float clamp(float in, float min, float max)
-{
-    if (in < min)
-        return min;
-    else if (in > max)
-        return max;
-    else
-        return in;
 }

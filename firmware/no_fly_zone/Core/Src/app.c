@@ -55,8 +55,9 @@ nrf24_handle_t rx = {
     .data_rate = NRF24_DATARATE_2MBPS,
     .freq_ch = 110,           // 2400 MHz + 110 = 2.510 GHz
 
+    // interrupt on data received
     .nrf24_irqs_t = {
-        .rx_dr_en = true,
+        .rx_dr_en = true,            
         .tx_ds_en = false,
         .max_rt_en = false,
     },
@@ -128,26 +129,23 @@ bms_handle_t bms = {
 
 bldc_handle_t bldc;
 madgwick_state_t state;
+ADC_HandleTypeDef * hadc_sense;
+IWDG_HandleTypeDef * iwdg;
+TIM_HandleTypeDef *tim_us_l, *tim_us_h;
 
 volatile bool rf_dr = false, imu_dr = false, bar_dr = false, adc_dr = false;
 volatile uint32_t last_pkt_tick_ms, last_bar_tick_ms, last_imu_tick_us;
 uint32_t this_imu_tick_us;
 
-ADC_HandleTypeDef * hadc_sense;
-IWDG_HandleTypeDef * iwdg;
-TIM_HandleTypeDef *tim_us_l, *tim_us_h;
-
 // sense_adc[0]: VBAT_SENSE
 // sense_adc[1]: CURR_SENSE
 uint16_t sense_adc[2];
-uint32_t adc_samples_cnt = 0;
-uint32_t vbat_sense_running_sum = 0;
+uint32_t adc_samples_cnt = 0, vbat_sense_running_sum = 0;
 uint16_t vbat_sense_buff[N_VBAT_SENSE_BUFF] = { 0 };
 uint16_t last_vbat_sense = 0;
 uint8_t vbat_sense_buff_ind = 0;
 uint8_t quad_batt_lvl;
 
-/***********************************************************************************************/
 typedef enum : uint8_t
 {
     FAILSAFE_TYPE_RF = 1,
@@ -158,7 +156,6 @@ typedef enum : uint8_t
 } failsafe_type_t;
 
 failsafe_type_t failsafe_cause = 0;
-/***********************************************************************************************/
 
 arm_state_t arm_state_quad = ARM_STATE_DISARMED;
 
@@ -256,14 +253,16 @@ void app(void)
     rf_packet_params_t pkt;
     rf_ack_params_t ack;
 
-    const float k_att = 5.0;
-
+    // prevent quadcopter from arming immediately after powerup
     bool has_been_disarmed = 0;
 
+    // PID and torque terms
+    const float k_att = 5.0;
     float last_w_x_err = 0, last_w_y_err = 0, last_w_z_err = 0;
     float w_x_err_sum = 0, w_y_err_sum = 0, w_z_err_sum = 0;
     float prev_dt = 0;
 
+    // gyroscope bias calculation
     uint32_t imu_samples_cnt = 0;
     float w_x_bias = 0.0f, w_y_bias = 0.0f, w_z_bias = 0.0f;
     float w_x_bias_accum = 0.0f, w_y_bias_accum = 0.0f, w_z_bias_accum = 0.0f;
@@ -272,6 +271,7 @@ void app(void)
     {
         HAL_IWDG_Refresh(iwdg);
 
+        // rough battery percentage calculation
         if (adc_dr)
         {
             adc_dr = false;
@@ -330,25 +330,25 @@ void app(void)
                     if (arm_state_quad != ARM_STATE_FAILSAFE)
                         arm_state_quad = ARM_STATE_DISARMED;
                     break;
+
                 case ARMED_KEY:
                     memcpy((uint8_t *)&pkt, (uint8_t *)&temp, sizeof(rf_packet_params_t));
-                    // prevent quadcopter from arming if it has never seen a disarmed
-                    // packet
+                    // prevent quadcopter from arming if it has never seen a disarmed packet
                     if (has_been_disarmed && arm_state_quad != ARM_STATE_FAILSAFE)
                         arm_state_quad = ARM_STATE_ARMED;
                     break;
+
                 case FAILSAFE_KEY:
                     memcpy((uint8_t *)&pkt, (uint8_t *)&temp, sizeof(rf_packet_params_t));
                     arm_state_quad = ARM_STATE_FAILSAFE;
-                    // remote type doesn't really make sense, wouldn't receive anything
-                    // from remote if it failed
                     failsafe_cause |= FAILSAFE_TYPE_REMOTE;
                     break;
+
                 default:
                     // invalid packet, ignore
                 }
             }
-            nrf24_listen_it(&rx);
+            nrf24_listen_it(&rx); // start listening again
         }
 
         if (imu_dr)
@@ -382,12 +382,12 @@ void app(void)
             w_y -= w_y_bias;
             w_z -= w_z_bias;
 
-            prev_dt = (float)(this_imu_tick_us - last_imu_tick_us) / 1000000.0f; // convert sample delay from us to s
+            prev_dt = (float)(this_imu_tick_us - last_imu_tick_us) / 1000000.0f; // convert sample period from us to s
             madgwick_update(a_x, a_y, a_z, w_x, w_y, w_z, BETA, prev_dt, &state);
 
             // stream orientation over USB (for debugging)
-            // float data[] = { state._q_state.q1, state._q_state.q2, state._q_state.q3, state._q_state.q4 };
-            // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
+            float data[] = { state._q_state.q1, state._q_state.q2, state._q_state.q3, state._q_state.q4 };
+            CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
             last_imu_tick_us = this_imu_tick_us;
         }
@@ -401,9 +401,6 @@ void app(void)
             lps25hb_read_press_hpa(&bar, &hpa);
         }
 
-        // if quadcopter sensors or RF communication is disrupted, go into failsafe
-        // mode RF can only go into failsafe if previous communication has been established
-
         // save atomic copies before doing timeout checks
         // this way, last_*_tick cannot update after tick_ms/tick_us has been declared,
         // which would result in an unsigned overflow, and therefore, timeout
@@ -414,8 +411,8 @@ void app(void)
         uint32_t tick_ms = millis_get_tick();
         uint32_t tick_us = micros_get_tick();
 
-        // make sure tick_ms is > than last_tick_ms in case interrupt occurs between read and check
-        // may not need the tick > last check
+        // if quadcopter sensors or RF communication is disrupted, go into failsafe
+        // mode RF can only go into failsafe if previous communication has been established
         if (tick_ms - last_pkt_tick_ms_local > RF_FAILSAFE_TIMEOUT_MS && pkt_cnt != 0)
         {
             arm_state_quad = ARM_STATE_FAILSAFE;
@@ -456,7 +453,9 @@ void app(void)
             float tau_z = pkt.kp * w_z_err;
 
             // do not accumulate error when the drone is not moving
-            if (pkt.throttle > 200)
+            const uint16_t throttle_min = 200;
+
+            if (pkt.throttle > throttle_min)
             {
                 w_x_err_sum += w_x_err * prev_dt;
                 w_y_err_sum += w_y_err * prev_dt;
@@ -465,21 +464,9 @@ void app(void)
 
             // clamp integrals
             const float w_max_err_sum = 500.0f;
-
-            if (w_x_err_sum > w_max_err_sum)
-                w_x_err_sum = w_max_err_sum;
-            else if (w_x_err_sum < -w_max_err_sum)
-                w_x_err_sum = -w_max_err_sum;
-
-            if (w_y_err_sum > w_max_err_sum)
-                w_y_err_sum = w_max_err_sum;
-            else if (w_y_err_sum < -w_max_err_sum)
-                w_y_err_sum = -w_max_err_sum;
-
-            if (w_z_err_sum > w_max_err_sum)
-                w_z_err_sum = w_max_err_sum;
-            else if (w_z_err_sum < -w_max_err_sum)
-                w_z_err_sum = -w_max_err_sum;
+            w_x_err_sum = clamp(w_x_err_sum, -w_max_err_sum, w_max_err_sum);
+            w_y_err_sum = clamp(w_y_err_sum, -w_max_err_sum, w_max_err_sum);
+            w_z_err_sum = clamp(w_z_err_sum, -w_max_err_sum, w_max_err_sum);
 
             // do not divide by zero when performing PID
             if (prev_dt != 0.0f)
@@ -501,19 +488,19 @@ void app(void)
             //     (float)bldc.throttles.speed_fl, (float)bldc.throttles.speed_bl, (float)bldc.throttles.speed_fr, (float)bldc.throttles.speed_br, w_x_err, w_y_err, w_z_err
             // };
             // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
-            float data[] = { pkt.q_des.q1,
-                             pkt.q_des.q2,
-                             pkt.q_des.q3,
-                             pkt.q_des.q4,
-                             state._q_state.q1,
-                             state._q_state.q2,
-                             state._q_state.q3,
-                             state._q_state.q4,
-                             (float)bldc.throttles.speed_fl,
-                             (float)bldc.throttles.speed_bl,
-                             (float)bldc.throttles.speed_fr,
-                             (float)bldc.throttles.speed_br };
-            CDC_Transmit_FS((uint8_t *)data, sizeof(data));
+            // float data[] = { pkt.q_des.q1,
+            //                  pkt.q_des.q2,
+            //                  pkt.q_des.q3,
+            //                  pkt.q_des.q4,
+            //                  state._q_state.q1,
+            //                  state._q_state.q2,
+            //                  state._q_state.q3,
+            //                  state._q_state.q4,
+            //                  (float)bldc.throttles.speed_fl,
+            //                  (float)bldc.throttles.speed_bl,
+            //                  (float)bldc.throttles.speed_fr,
+            //                  (float)bldc.throttles.speed_br };
+            // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
             HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
             HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
@@ -534,7 +521,6 @@ void app(void)
 
             while (1)
             {
-                // disable IMU, barometer, RF?
                 // for initial versions, do not even attempt to recover from failure
                 // must reset watchdog though
 

@@ -44,4 +44,11 @@ void madgwick_update(
 /* [out] w_z_err - angular velocity error in _ direction (rad/s) */
 void madgwick_curr_to_des(const madgwick_state_t * state, const quaternion_t q_des, const float k_att, float * w_x_err, float * w_y_err, float * w_z_err);
 
+/* Clamp input between min and mix */
+/* [in] in - input */
+/* [in] min - minimum value */
+/* [in] max - maximum value */
+/* [return] clamped output */
+float clamp(float in, float min, float max);
+
 #endif
