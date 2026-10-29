@@ -5,8 +5,6 @@
 #include "stm32l4xx_hal_iwdg.h"
 #include "stm32l4xx_hal_tim.h"
 #include "usbd_cdc_if.h"
-#include <math.h>
-#include <string.h>
 
 #include "bms.h"
 #include "encoder.h"
@@ -23,29 +21,49 @@
 #define RF_TX_ADDR 0xE7E7E7E7
 #define RF_RX_ADDR 0xE7E7E7E7
 
-#define N_ADC_SAMPLES 5
+#define N_ADC_SAMPLES         5
+#define ARM_STATE_UPDATE_T_MS 500
+#define ENCODER_UPDATE_T_MS   100
 
-// add ms to end of each
-#define OLED_UPDATE_T      50
-#define ARM_STATE_UPDATE_T 500
-#define ENC_UPDATE_T       100
+#define BMS_DIVISION_FACTOR 2.005f              // found by measuring resistor divider network
+#define V_ADC_REF           3.33f               // exact measurement
+#define V_ADC_OFFSET        0.13f               // measured
 
-#define OLED_RES_X 128
-#define OLED_RES_Y 64
+#define OLED_RES_X 128                          // pixels
+#define OLED_RES_Y 64                           // pixels
 #define OLED_PAGES (OLED_RES_Y / 8)
 
-uint16_t samples[N_ADC_SAMPLES];
+volatile bool adc_dr = false;                   // ADC data ready
+uint16_t adc_samples[N_ADC_SAMPLES];            // DMA buffer for new ADC samples
+uint32_t adc_samples_cnt = 0;                   // number of group conversions
+uint8_t remote_batt_lvl = 0, quad_batt_lvl = 0; // battery levels
 
 // reference for buffer sizes found in ssd1306.h
-uint8_t oled_buff[OLED_RES_X * OLED_PAGES];
-uint8_t tx_buff[OLED_RES_X * OLED_PAGES + 13];
+uint8_t oled_buff[OLED_RES_X * OLED_PAGES];                  // pixel buffer
+uint8_t tx_buff[OLED_RES_X * OLED_PAGES + 13];               // TX buffer for DMA I2C transactions
 
-oled_pages_t page = PAGE_BATT_LVL;
-uint8_t sw_state = 0;
+oled_pages_t page = PAGE_BATT_LVL;                           // current OLED page
+uint8_t sw_state = 0;                                        // encoder switch state
 
-volatile bool adc_dr = false;
-float kp = 15.0f, ki = 0.3f, kd = 0.5f; // preload K values for easier manipulation
+float kp = 15.0f, ki = 0.3f, kd = 0.5f;                      // preload K values for easier manipulation
 
+IWDG_HandleTypeDef * iwdg;                                   // independent watchdog handler
+TIM_HandleTypeDef * tim_us_l;                                // low 16-bits of 32-bit timer handle
+uint16_t tim_us_cnt_h;                                       // high 16-bits of 32-bit timer
+
+quaternion_t q_des = { .q1 = 1, .q2 = 0, .q3 = 0, .q4 = 0 }; // desired quaternion
+arm_state_t arm_state_remote = ARM_STATE_DISARMED;           // current state of remote
+joysticks_t joysticks;                                       // joystick structure handle
+float yaw_ang_des;                                           // desired yaw angle (only NON-ACRO mode)
+
+uint32_t last_arm_state_update = 0;                          // timestamp of last time mode changed betwen ARM/DISARM to DISARM/ARM
+uint32_t last_tune_update = 0;                               // timestamp of last time tuner was updated (to prevent PID values from growing/shrinking too fast)
+active_tune_param_t curr_tune_param = ACTIVE_TUNE_NONE;      // current parameter being tuned
+
+void encoder_callback(encoder_handle_t * henc, encoder_event_t enc_event, encoder_event_t sw_event);
+void bms_callback(bms_handle_t * bms, bms_event_t event);
+static void monitor_arm_state_change_request();
+static void monitor_calibration_request();
 void delay_us(uint32_t delay);
 void delay_ms(uint32_t delay);
 uint32_t micros_get_tick();
@@ -94,28 +112,17 @@ encoder_handle_t enc = {
     .sw_gpio = ENC_SW_GPIO_Port,
     .sw_pin = ENC_SW_Pin,
     .mode = ENCODER_MODE_TIM,
-    .t_update = 100,
+    .t_update = ENCODER_UPDATE_T_MS,
 };
 
 bms_handle_t bms = {
 
     .type = BMS_LIPO_TYPE,
     .cell_cnt = 1,
-    .div = 2.005,     // found by measuring resistor divider network
-    .v_ref = 3.33,    // exact measurement
-    .v_offset = 0.13, // measured
+    .div = BMS_DIVISION_FACTOR,
+    .v_ref = V_ADC_REF,
+    .v_offset = V_ADC_OFFSET,
 };
-
-IWDG_HandleTypeDef * iwdg;
-TIM_HandleTypeDef * tim_us_l;
-uint16_t tim_us_cnt_h;
-
-arm_state_t arm_state_remote = ARM_STATE_DISARMED;
-joysticks_t joysticks = { .millis_get_tick = millis_get_tick };
-float yaw_ang_des;
-
-void encoder_callback(encoder_handle_t * henc, encoder_event_t enc_event, encoder_event_t sw_event);
-void bms_callback(bms_handle_t * bms, bms_event_t event);
 
 void app_init(ADC_HandleTypeDef * hadc,
               DMA_HandleTypeDef * hdma,
@@ -158,11 +165,12 @@ void app_init(ADC_HandleTypeDef * hadc,
 
     /***************************************** Configure joystick *********************************************/
     joysticks_init(&joysticks);
+    joysticks.millis_get_tick = millis_get_tick;
     /**********************************************************************************************************/
 
     /****************************************** Configure ADC + DMA *******************************************/
-    HAL_ADC_Start_DMA(hadc, (uint32_t *)samples, N_ADC_SAMPLES); // enable ADC with DMA transfers
-    HAL_TIM_Base_Start(htim_adc);                                // start ADC conversions (200 Hz)
+    HAL_ADC_Start_DMA(hadc, (uint32_t *)adc_samples, N_ADC_SAMPLES); // enable ADC with DMA transfers
+    HAL_TIM_Base_Start(htim_adc);                                    // start ADC conversions (200 Hz)
     /**********************************************************************************************************/
 
     /***************************************** Enable and start OLED ******************************************/
@@ -174,21 +182,8 @@ void app_init(ADC_HandleTypeDef * hadc,
 
 void app(void)
 {
-    uint8_t remote_batt_lvl = 0;
-    uint8_t quad_batt_lvl = 0;
-
-    uint32_t last_tune_update = 0;
-    active_tune_param_t curr_tune_param = ACTIVE_TUNE_NONE;
-
-    uint32_t last_arm_state_update = 0;
-
-    uint32_t adc_samples_cnt = 0;
-
-    quaternion_t q_des = { .q1 = 1, .q2 = 0, .q3 = 0, .q4 = 0 };
-
     while (1)
     {
-
         // PAGE 1
         // OLED is locked on this page when in ARM mode
         // PAGE 2
@@ -198,53 +193,27 @@ void app(void)
 
         HAL_IWDG_Refresh(iwdg); // will cause system reset if refresh() not called every ~0.5s
 
-        // Monitor for an ARM state change request
-        if (sw_state && page == PAGE_BATT_LVL && joysticks.throttle > 3000 && millis_get_tick() - last_arm_state_update > ARM_STATE_UPDATE_T)
-        {
-            if (arm_state_remote == ARM_STATE_ARMED)
-                arm_state_remote = ARM_STATE_DISARMED;
-            else if (arm_state_remote == ARM_STATE_DISARMED)
-            {
-                arm_state_remote = ARM_STATE_ARMED;
-
-                // reset
-                q_des.q1 = 1.0f;
-                q_des.q2 = 0.0f;
-                q_des.q3 = 0.0f;
-                q_des.q4 = 0.0f;
-                yaw_ang_des = 0.0f;
-            }
-
-            curr_tune_param = ACTIVE_TUNE_NONE;
-            last_arm_state_update = millis_get_tick();
-        }
-
-        // Monitor for a calibration request
-        if (sw_state && arm_state_remote == ARM_STATE_DISARMED && page == PAGE_JOYSTICK && !joysticks.is_calibrating)
-        {
-            joysticks_calibration_start(&joysticks);
-        }
+        monitor_arm_state_change_request();
+        monitor_calibration_request();
 
         if (adc_dr)
         {
             adc_dr = false;
             adc_samples_cnt++;
 
-            // convert joysticks to euler angles and then quaternions
-            joysticks.throttle = samples[0];
-            joysticks.yaw = samples[1];
-            joysticks.pitch = samples[2];
-            joysticks.roll = samples[3];
+            // extract joystick samples
+            joysticks.throttle = adc_samples[0];
+            joysticks.yaw = adc_samples[1];
+            joysticks.pitch = adc_samples[2];
+            joysticks.roll = adc_samples[3];
 
+            // condition raw joystick inputs
             float throttle_norm, pitch_norm, roll_norm, yaw_norm;
             joysticks_condition(&joysticks, &throttle_norm, &pitch_norm, &roll_norm, &yaw_norm);
 
-            // float buff[4] = { throttle_norm, pitch_norm, roll_norm, yaw_norm };
-            // uint16_t buff[4] = { joysticks.throttle, joysticks.pitch, joysticks.roll, joysticks.yaw };
-            // CDC_Transmit_FS((uint8_t *)buff, sizeof(buff));
-
+            // check battery level
             float percent;
-            bms_update(&bms, (float)samples[4] / ADC_RES_CNT, &percent);
+            bms_update(&bms, (float)adc_samples[4] / ADC_RES_CNT, &percent);
             remote_batt_lvl = (uint8_t)percent;
 
             uint8_t key;
@@ -269,11 +238,12 @@ void app(void)
                 if (ACROBATIC_MODE)
                     joysticks_pos_to_quat_acro(pitch_norm, roll_norm, yaw_norm, &q_des);
                 else
-                    joysticks_pos_to_quat(pitch_norm, roll_norm, yaw_norm, &yaw_ang_des, &q_des);
+                    joysticks_pos_to_quat(pitch_norm, roll_norm, yaw_norm, &yaw_ang_des, &q_des); // keep track of current yaw position between updates
 
                 // convert joystick position to DShot value
                 joysticks_pos_to_throttle(throttle_norm, &shaped_throttle);
 
+                // stream desired quaternion for debugging
                 float data[] = { q_des.q1, q_des.q2, q_des.q3, q_des.q4 };
                 CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
@@ -391,6 +361,41 @@ void bms_callback(bms_handle_t * bms, bms_event_t event)
     if (event == BMS_EVENT_CHARGE_EMPTY)
     {
         arm_state_remote = ARM_STATE_FAILSAFE;
+    }
+}
+
+static void monitor_arm_state_change_request()
+{
+    // Monitor for an ARM state change request
+    // Remote must be on battery level page, joystick throttle must be lowered all the way
+    if (sw_state && page == PAGE_BATT_LVL && joysticks.throttle > 3000 && millis_get_tick() - last_arm_state_update > ARM_STATE_UPDATE_T_MS)
+    {
+        if (arm_state_remote == ARM_STATE_ARMED)
+            arm_state_remote = ARM_STATE_DISARMED;
+        else if (arm_state_remote == ARM_STATE_DISARMED)
+        {
+            arm_state_remote = ARM_STATE_ARMED;
+
+            // reset
+            q_des.q1 = 1.0f;
+            q_des.q2 = 0.0f;
+            q_des.q3 = 0.0f;
+            q_des.q4 = 0.0f;
+            yaw_ang_des = 0.0f;
+        }
+
+        curr_tune_param = ACTIVE_TUNE_NONE;
+        last_arm_state_update = millis_get_tick();
+    }
+}
+
+static void monitor_calibration_request()
+{
+    // Monitor for a calibration request
+    // Remote must be disarmed, on joystick page with encoder pressed and currently not calibrating
+    if (sw_state && arm_state_remote == ARM_STATE_DISARMED && page == PAGE_JOYSTICK && !joysticks.is_calibrating)
+    {
+        joysticks_calibration_start(&joysticks);
     }
 }
 

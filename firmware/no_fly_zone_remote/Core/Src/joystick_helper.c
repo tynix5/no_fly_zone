@@ -3,10 +3,42 @@
 #include "stm32l4xx_hal.h"
 #include <math.h>
 
+/************************************************************* Helper Functions ***************************************************************/
+/* Convert raw input from desired range into normalized range with optional deadzones and signal reshaping */
+/* [input] x - input */
+/* [input] x_min - minimum input value */
+/* [input] x_mid - average input value */
+/* [input] x_max - maximum input value */
+/* [input] deadzone - percent desired deadzone */
+/* [input] beta - cubic shape factor, higher beta, closer to cubic relationship */
+/* [output] x_norm - sanitized output [-1, 1] */
 static void joysticks_normalize_input(uint16_t x, uint16_t x_min, uint16_t x_mid, uint16_t x_max, float deadzone, float beta, float * x_norm);
+
+/* Convert gyroscope rates to a desired quaternion */
+/* [input] w_x - euler rate in X direction */
+/* [input] w_y - euler rate in Y direction */
+/* [input] w_z - euler rate in Z direction */
+/* [output] q_des - output quaternion */
 static void joysticks_euler_rates_to_quat(float w_x, float w_y, float w_z, quaternion_t * q_des);
+
+/* Convert stick positions to desired euler rates (ACRO mode) */
+/* [input] pitch_norm - normalized pitch input [-1, 1] */
+/* [input] roll_norm - normalized roll input [-1, 1] */
+/* [input] yaw_norm - normalized yaw input [-1, 1] */
+/* [output] pitch_rate - desired pitch rate */
+/* [output] roll_rate - desired roll rate */
+/* [output] yaw_rate - desired yaw rate */
 static void joysticks_pos_to_euler_rates(float pitch_norm, float roll_norm, float yaw_norm, float * pitch_rate, float * roll_rate, float * yaw_rate);
+
+/* Convert stick positions to desired euler rates (NON-ACRO mode) */
+/* [input] pitch_norm - normalized pitch input [-1, 1] */
+/* [input] roll_norm - normalized roll input [-1, 1] */
+/* [input] yaw_norm - normalized yaw input [-1, 1] */
+/* [input/output] yaw_ang_des - integrated desired yaw angle */
+/* [output] pitch_deg - desired pitch angle (degrees) */
+/* [output] roll_deg - desired roll angle (degrees) */
 static void joysticks_pos_to_euler_ang(float pitch_norm, float roll_norm, float yaw_norm, float * yaw_ang_des, float * pitch_deg, float * roll_deg);
+/**********************************************************************************************************************************************/
 
 void joysticks_init(joysticks_t * joystick)
 {
@@ -96,30 +128,33 @@ void joysticks_calibrate(joysticks_t * joystick)
     if (joystick->is_calibrating && joystick->millis_get_tick() - joystick->last_calibration_ms < JOYSTICK_CALIBRATION_T_MS)
     {
         // add a buffer of 0.5% to every max value and min value
-        uint16_t throttle_ceil = (uint16_t)((float)joystick->throttle * 1.005);
-        uint16_t throttle_floor = (uint16_t)((float)joystick->throttle * 0.995);
-        uint16_t pitch_ceil = (uint16_t)((float)joystick->pitch * 1.005);
-        uint16_t pitch_floor = (uint16_t)((float)joystick->pitch * 0.995);
-        uint16_t roll_ceil = (uint16_t)((float)joystick->roll * 1.005);
-        uint16_t roll_floor = (uint16_t)((float)joystick->roll * 0.995);
-        uint16_t yaw_ceil = (uint16_t)((float)joystick->yaw * 1.005);
-        uint16_t yaw_floor = (uint16_t)((float)joystick->yaw * 0.995);
+        const float k_ceil = 1.005f;
+        const float k_floor = 0.995;
 
+        // if new readings exceeds thresholds, replace thresholds
+        uint16_t throttle_ceil = (uint16_t)((float)joystick->throttle * k_ceil);
+        uint16_t throttle_floor = (uint16_t)((float)joystick->throttle * k_floor);
         if (throttle_ceil > joystick->throttle_max)
             joystick->throttle_max = throttle_ceil;
         else if (throttle_floor < joystick->throttle_min)
             joystick->throttle_min = throttle_floor;
 
+        uint16_t pitch_ceil = (uint16_t)((float)joystick->pitch * k_ceil);
+        uint16_t pitch_floor = (uint16_t)((float)joystick->pitch * k_floor);
         if (pitch_ceil > joystick->pitch_max)
             joystick->pitch_max = pitch_ceil;
         else if (pitch_floor < joystick->pitch_min)
             joystick->pitch_min = pitch_floor;
 
+        uint16_t roll_ceil = (uint16_t)((float)joystick->roll * k_ceil);
+        uint16_t roll_floor = (uint16_t)((float)joystick->roll * k_floor);
         if (roll_ceil > joystick->roll_max)
             joystick->roll_max = roll_ceil;
         else if (roll_floor < joystick->roll_min)
             joystick->roll_min = roll_floor;
 
+        uint16_t yaw_ceil = (uint16_t)((float)joystick->yaw * k_ceil);
+        uint16_t yaw_floor = (uint16_t)((float)joystick->yaw * k_floor);
         if (yaw_ceil > joystick->yaw_max)
             joystick->yaw_max = yaw_ceil;
         else if (yaw_floor < joystick->yaw_min)
