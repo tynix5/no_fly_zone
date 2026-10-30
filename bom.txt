@@ -1,0 +1,11 @@
+Quadcopter
+Frame: FPVDrone 225mm FPV Racing Drone 5 inch (x1)
+Motors: FLASH HOBBY Arthur 2207.5 Outrunner 1900KV (x4)
+ESC: AERO SERLFIE 60A 4IN1 ESC 2S-6S LiPo (x1)
+Rotors: HQProp Ethix S4 Prop Lemon Lime 5x3.7x3 Tri-Blade
+Battery: OVONIC 4s Lipo Battery 100C 1550mAh 14.8V Lipo Battery with XT60 Connector
+
+Controller
+OLED: ELEGOO 0.96 Inch OLED Display Screen Module, Self-Luminous, SSD1306
+Joystick: Gulikit TMR
+Battery: EEMB 3.7V LiPo Battery 1100mAh

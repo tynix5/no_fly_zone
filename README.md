@@ -3,12 +3,12 @@ A custom designed quadcopter and remote combination featuring a custom STM32-bas
 
 <p align="center">
   <img src="screenshots/quad_top_6.jpeg" width="800"><br>
-  <em>Isometric view of the fully-assembled quadcopter</em>
+  <em>Fully-assembled quadcopter</em>
 </p>
 
 <p align="center">
   <img src="screenshots/quad_top_3.jpeg" width="800"><br>
-  <em>Top-down view of quadcopter</em>
+  <em>Flight controller pictured with ESC mounted underneath</em>
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@ A custom designed quadcopter and remote combination featuring a custom STM32-bas
 
 <p align="center">
   <img src="screenshots/remote_internal.jpeg" width="800"><br>
-  <em>Custom remote control PCB</em>
+  <em>Remote control PCB</em>
 </p>
 
 ## Overview
@@ -62,4 +62,4 @@ All components purchased off-shelf can be found in the `bom.txt` file, and the B
 ## Improvements
 - Use of magnetometer or GPS unit for absolute heading
 - Use of barometer for altitude hold
-- Improved remote control PCB for options for nonvolatile storage for PID parameters and extra transmission power
+- Improved remote control PCB including nonvolatile storage (for PID parameters) and amplified transmission power
