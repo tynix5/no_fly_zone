@@ -1,6 +1,5 @@
 #include "app.h"
 #include "main.h"
-#include "stm32l4xx_hal.h"
 #include "stm32l4xx_hal_gpio.h"
 #include "stm32l4xx_hal_iwdg.h"
 #include "stm32l4xx_hal_tim.h"
@@ -76,7 +75,7 @@ nrf24_handle_t tx = {
     .ce_pin = RF_CE_Pin,
     .cs_gpio = RF_CS_GPIO_Port,
     .cs_pin = RF_CS_Pin,
-    .delay_ms = HAL_Delay,
+    .delay_ms = delay_ms,
     .delay_us = delay_us,
 
     .power_level = NRF24_TX_PWR_0DBM,
