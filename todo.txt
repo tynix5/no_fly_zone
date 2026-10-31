@@ -3,8 +3,6 @@ no_fly_zone_remote
 
 no_fly_zone
 - attempt recovery for failure to init
-- place torque commands into matrix for cleaner math
-- clean up code and comments
 - after full spin, rolling or pitching in one direction will cause it to move in another
 
 stm32_lib

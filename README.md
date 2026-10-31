@@ -63,3 +63,4 @@ All components purchased off-shelf can be found in the `bom.txt` file, and the B
 - Use of magnetometer or GPS unit for absolute heading
 - Use of barometer for altitude hold
 - Improved remote control PCB including nonvolatile storage (for PID parameters) and amplified transmission power
+- Newer remote frame design
