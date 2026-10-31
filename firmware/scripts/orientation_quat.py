@@ -11,8 +11,8 @@ import numpy as np
 # Serial configuration
 # ==========================
 
-# PORT = "COM8"
-PORT = "COM9"
+PORT = "COM8"
+# PORT = "COM9"
 BAUD = 115200
 
 ser = serial.Serial(PORT, BAUD, timeout=0)
