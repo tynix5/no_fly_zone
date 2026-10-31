@@ -1,13 +1,10 @@
 #include "app.h"
-#include "arm_math.h"
 #include "main.h"
 #include "stm32f446xx.h"
-#include "stm32f4xx_hal.h"
 #include "stm32f4xx_hal_adc.h"
 #include "stm32f4xx_hal_gpio.h"
 #include "stm32f4xx_hal_tim.h"
 #include "usbd_cdc_if.h"
-#include <stdio.h>
 #include <stdbool.h>
 #include <sys/types.h>
 
@@ -20,9 +17,6 @@
 #include "quaternion.h"
 #include "rf_structs.h"
 
-#define BETA    0.25f
-#define DELTA_T 1 / 1660.0 // replace with actual variable
-
 #define RF_TX_ADDR 0xC2C2C2C2
 #define RF_RX_ADDR 0xE7E7E7E7
 
@@ -30,13 +24,61 @@
 #define IMU_FAILSAFE_TIMEOUT_MS 50
 #define BAR_FAILSAFE_TIMEOUT_MS 1000
 
-#define PKT_PER_ACK 10
+#define BETA               0.25f                                                          // Madgwick filter constant
+#define DELTA_T            1 / 1660.0                                                     // theoretical IMU dt
+#define PKT_PER_ACK        10                                                             // packets received before sending response ACK
+#define ADC_RES_CNT        4096.0f                                                        // 2^12
+#define N_VBAT_SENSE_BUFF  10                                                             // # of samples in buffer to perform running average
+#define N_IMU_BIAS_SAMPLES 3000                                                           // # of samples needed to calculate gyro bias
 
-#define ADC_RES_CNT       4096.0f
-#define N_VBAT_SENSE_BUFF 10
+bldc_handle_t bldc;                                                                       // BLDC motor handle
+madgwick_state_t state;                                                                   // Madgwick filter state
+ADC_HandleTypeDef * hadc_sense;                                                           // ADC handle
+IWDG_HandleTypeDef * iwdg;                                                                // indepedent watchdog handle
+TIM_HandleTypeDef *tim_us_l, *tim_us_h;                                                   // microsecond timer handles
 
-#define N_IMU_BIAS_SAMPLES 3000
+volatile bool rf_dr = false, imu_dr = false, bar_dr = false, adc_dr = false;              // interrupt statuses
+volatile uint32_t last_pkt_tick_ms, last_bar_tick_ms, last_imu_tick_us, this_imu_tick_us; // timestamps for interrupts
 
+uint16_t sense_adc[2];                                                                    // ADC DMA buffer - sense_adc[0]: VBAT_SENSE, sense_adc[1]: CURR_SENSE
+uint32_t adc_samples_cnt = 0, vbat_sense_running_sum = 0;                                 // total ADC group conversions taken, needed to compute running average
+uint16_t vbat_sense_buff[N_VBAT_SENSE_BUFF] = { 0 };                                      // last N_VBAT_SENSE_BUFF battery voltage samples
+uint16_t last_vbat_sense = 0;                                                             // oldest battery voltage sample (to be discarded)
+uint8_t vbat_sense_buff_ind = 0;                                                          // index of current VBAT_SENSE to be stored in buffer
+uint8_t quad_batt_lvl;                                                                    // computed battery level of quadcopter
+
+uint32_t imu_samples_cnt = 0;                                                             // total IMU samples taken
+float w_x_bias = 0.0f, w_y_bias = 0.0f, w_z_bias = 0.0f;                                  // calculated gyro bias
+float w_x_bias_accum = 0.0f, w_y_bias_accum = 0.0f, w_z_bias_accum = 0.0f;                // accumulated gyro readings to calculate bias
+
+// failsafe causes
+typedef enum : uint8_t
+{
+    FAILSAFE_TYPE_RF = 1,
+    FAILSAFE_TYPE_IMU = 2,
+    FAILSAFE_TYPE_BAR = 4,
+    FAILSAFE_TYPE_REMOTE = 8,
+    FAILSAFE_TYPE_BMS = 16,
+} failsafe_type_t;
+
+failsafe_type_t failsafe_cause = 0;                         // current failsafe status
+
+arm_state_t arm_state_quad = ARM_STATE_DISARMED;            // ARM state of quadcopter
+rf_packet_params_t pkt;                                     // received RF packet structure
+rf_ack_params_t ack;                                        // transmitted RF ACK
+uint32_t pkt_cnt = 0;                                       // received RF packet count
+bool has_been_disarmed = 0;                                 // prevent quadcopter from arming immediately after powerup
+
+const float k_att = 7.0;                                    // constant to convert attitude error to desired angular rates
+float last_w_x_err = 0, last_w_y_err = 0, last_w_z_err = 0; // used for derivative term
+float w_x_err_sum = 0, w_y_err_sum = 0, w_z_err_sum = 0;    // used for integral term
+float prev_dt = 0;                                          // time difference between consecutive IMU samples
+
+static void construct_ack(rf_ack_params_t * ack);
+static void apply_gyro_bias(float w_x, float w_y, float w_z, float * w_x_new, float * w_y_new, float * w_z_new);
+static void monitor_timeout_status();
+static void apply_pid(float w_x_err, float w_y_err, float w_z_err, float * tau_x, float * tau_y, float * tau_z);
+void bms_callback(bms_handle_t * bms, bms_event_t event);
 uint32_t micros_get_tick();
 uint32_t millis_get_tick();
 void delay_us(uint32_t delay);
@@ -127,41 +169,6 @@ bms_handle_t bms = {
     .v_offset = 0,
 };
 
-bldc_handle_t bldc;
-madgwick_state_t state;
-ADC_HandleTypeDef * hadc_sense;
-IWDG_HandleTypeDef * iwdg;
-TIM_HandleTypeDef *tim_us_l, *tim_us_h;
-
-volatile bool rf_dr = false, imu_dr = false, bar_dr = false, adc_dr = false;
-volatile uint32_t last_pkt_tick_ms, last_bar_tick_ms, last_imu_tick_us;
-uint32_t this_imu_tick_us;
-
-// sense_adc[0]: VBAT_SENSE
-// sense_adc[1]: CURR_SENSE
-uint16_t sense_adc[2];
-uint32_t adc_samples_cnt = 0, vbat_sense_running_sum = 0;
-uint16_t vbat_sense_buff[N_VBAT_SENSE_BUFF] = { 0 };
-uint16_t last_vbat_sense = 0;
-uint8_t vbat_sense_buff_ind = 0;
-uint8_t quad_batt_lvl;
-
-typedef enum : uint8_t
-{
-    FAILSAFE_TYPE_RF = 1,
-    FAILSAFE_TYPE_IMU = 2,
-    FAILSAFE_TYPE_BAR = 4,
-    FAILSAFE_TYPE_REMOTE = 8,
-    FAILSAFE_TYPE_BMS = 16,
-} failsafe_type_t;
-
-failsafe_type_t failsafe_cause = 0;
-
-arm_state_t arm_state_quad = ARM_STATE_DISARMED;
-
-static void construct_ack(rf_ack_params_t * ack);
-void bms_callback(bms_handle_t * bms, bms_event_t event);
-
 void app_init(ADC_HandleTypeDef * hadc,
               SPI_HandleTypeDef * hspi_sensor,
               SPI_HandleTypeDef * hspi_rf,
@@ -235,7 +242,6 @@ void app_init(ADC_HandleTypeDef * hadc,
     /**********************************************************************************************************/
 
     /************************************** Configure and Start ADC + DMA *************************************/
-    // make sure this is working
     HAL_ADC_Start_DMA(hadc, (uint32_t *)sense_adc, 2); // enable ADC conversion for VBAT_SENSE and CURR_SENSE
     HAL_TIM_Base_Start(htim_adc);                      // start triggering ADC (T = 0.2s)
     /**********************************************************************************************************/
@@ -248,25 +254,6 @@ void app_init(ADC_HandleTypeDef * hadc,
 
 void app(void)
 {
-    uint32_t pkt_cnt = 0;
-
-    rf_packet_params_t pkt;
-    rf_ack_params_t ack;
-
-    // prevent quadcopter from arming immediately after powerup
-    bool has_been_disarmed = 0;
-
-    // PID and torque terms
-    const float k_att = 5.0;
-    float last_w_x_err = 0, last_w_y_err = 0, last_w_z_err = 0;
-    float w_x_err_sum = 0, w_y_err_sum = 0, w_z_err_sum = 0;
-    float prev_dt = 0;
-
-    // gyroscope bias calculation
-    uint32_t imu_samples_cnt = 0;
-    float w_x_bias = 0.0f, w_y_bias = 0.0f, w_z_bias = 0.0f;
-    float w_x_bias_accum = 0.0f, w_y_bias_accum = 0.0f, w_z_bias_accum = 0.0f;
-
     while (1)
     {
         HAL_IWDG_Refresh(iwdg);
@@ -356,31 +343,15 @@ void app(void)
             imu_dr = false;
             imu_samples_cnt++;
 
-            float a_x, a_y, a_z, w_x, w_y, w_z;
+            float a_x, a_y, a_z, w_x_raw, w_y_raw, w_z_raw;
 
             // update orientation estimation
-            lsm6ds3tr_read_gyro_radps(&imu, &w_x, &w_y, &w_z);
+            lsm6ds3tr_read_gyro_radps(&imu, &w_x_raw, &w_y_raw, &w_z_raw);
             lsm6ds3tr_read_accel_mps2(&imu, &a_x, &a_y, &a_z);
 
-            // discard first N samples to allow time for IMU to settle
-            // accumulate average sensor reading for second N samples
-            // quadcopter should be powered on while stationary on a level surface to calibrate
-            if (imu_samples_cnt > N_IMU_BIAS_SAMPLES && imu_samples_cnt < 2 * N_IMU_BIAS_SAMPLES)
-            {
-                w_x_bias_accum += w_x;
-                w_y_bias_accum += w_y;
-                w_z_bias_accum += w_z;
-            }
-            else if (imu_samples_cnt == 2 * N_IMU_BIAS_SAMPLES) // calculate bias (average)
-            {
-                w_x_bias = w_x_bias_accum / (float)N_IMU_BIAS_SAMPLES;
-                w_y_bias = w_y_bias_accum / (float)N_IMU_BIAS_SAMPLES;
-                w_z_bias = w_z_bias_accum / (float)N_IMU_BIAS_SAMPLES;
-            }
-
-            w_x -= w_x_bias;
-            w_y -= w_y_bias;
-            w_z -= w_z_bias;
+            // calculate and apply gyro bias
+            float w_x, w_y, w_z;
+            apply_gyro_bias(w_x_raw, w_y_raw, w_z_raw, &w_x, &w_y, &w_z);
 
             prev_dt = (float)(this_imu_tick_us - last_imu_tick_us) / 1000000.0f; // convert sample period from us to s
             madgwick_update(a_x, a_y, a_z, w_x, w_y, w_z, BETA, prev_dt, &state);
@@ -401,33 +372,8 @@ void app(void)
             lps25hb_read_press_hpa(&bar, &hpa);
         }
 
-        // save atomic copies before doing timeout checks
-        // this way, last_*_tick cannot update after tick_ms/tick_us has been declared,
-        // which would result in an unsigned overflow, and therefore, timeout
-        uint32_t last_pkt_tick_ms_local = last_pkt_tick_ms;
-        uint32_t last_imu_tick_us_local = last_imu_tick_us;
-        uint32_t last_bar_tick_ms_local = last_bar_tick_ms;
-
-        uint32_t tick_ms = millis_get_tick();
-        uint32_t tick_us = micros_get_tick();
-
-        // if quadcopter sensors or RF communication is disrupted, go into failsafe
-        // mode RF can only go into failsafe if previous communication has been established
-        if (tick_ms - last_pkt_tick_ms_local > RF_FAILSAFE_TIMEOUT_MS && pkt_cnt != 0)
-        {
-            arm_state_quad = ARM_STATE_FAILSAFE;
-            failsafe_cause |= FAILSAFE_TYPE_RF;
-        }
-        if (((tick_us - last_imu_tick_us_local) / 1000) > IMU_FAILSAFE_TIMEOUT_MS)
-        {
-            arm_state_quad = ARM_STATE_FAILSAFE;
-            failsafe_cause |= FAILSAFE_TYPE_IMU;
-        }
-        if (tick_ms - last_bar_tick_ms_local > BAR_FAILSAFE_TIMEOUT_MS)
-        {
-            arm_state_quad = ARM_STATE_FAILSAFE;
-            failsafe_cause |= FAILSAFE_TYPE_BAR;
-        }
+        // check for any sensor or RF timeouts
+        monitor_timeout_status();
 
         switch (arm_state_quad)
         {
@@ -446,61 +392,12 @@ void app(void)
             float w_x_err, w_y_err, w_z_err;
             madgwick_curr_to_des(&state, pkt.q_des, k_att, &w_x_err, &w_y_err, &w_z_err);
 
-            // run PID on ew --> place these into a matrix for cleaner math?
-            // convert rate error to torque/speed commands
-            float tau_x = pkt.kp * w_x_err;
-            float tau_y = pkt.kp * w_y_err;
-            float tau_z = pkt.kp * w_z_err;
-
-            // do not accumulate error when the drone is not moving
-            const uint16_t throttle_min = 200;
-
-            if (pkt.throttle > throttle_min)
-            {
-                w_x_err_sum += w_x_err * prev_dt;
-                w_y_err_sum += w_y_err * prev_dt;
-                w_z_err_sum += w_z_err * prev_dt;
-            }
-
-            // clamp integrals
-            const float w_max_err_sum = 500.0f;
-            w_x_err_sum = clamp(w_x_err_sum, -w_max_err_sum, w_max_err_sum);
-            w_y_err_sum = clamp(w_y_err_sum, -w_max_err_sum, w_max_err_sum);
-            w_z_err_sum = clamp(w_z_err_sum, -w_max_err_sum, w_max_err_sum);
-
-            // do not divide by zero when performing PID
-            if (prev_dt != 0.0f)
-            {
-                tau_x += pkt.ki * w_x_err_sum + pkt.kd * (w_x_err - last_w_x_err) / prev_dt;
-                tau_y += pkt.ki * w_y_err_sum + pkt.kd * (w_y_err - last_w_y_err) / prev_dt;
-                tau_z += pkt.ki * w_z_err_sum + pkt.kd * (w_z_err - last_w_z_err) / prev_dt;
-            }
-
-            last_w_x_err = w_x_err;
-            last_w_y_err = w_y_err;
-            last_w_z_err = w_z_err;
+            float tau_x, tau_y, tau_z;
+            apply_pid(w_x_err, w_y_err, w_z_err, &tau_x, &tau_y, &tau_z);
 
             // mix torque/speed commands
             bldc_mix(&bldc, pkt.throttle, tau_x, tau_y, tau_z);
             bldc_send(&bldc);
-
-            // float data[] = {
-            //     (float)bldc.throttles.speed_fl, (float)bldc.throttles.speed_bl, (float)bldc.throttles.speed_fr, (float)bldc.throttles.speed_br, w_x_err, w_y_err, w_z_err
-            // };
-            // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
-            // float data[] = { pkt.q_des.q1,
-            //                  pkt.q_des.q2,
-            //                  pkt.q_des.q3,
-            //                  pkt.q_des.q4,
-            //                  state._q_state.q1,
-            //                  state._q_state.q2,
-            //                  state._q_state.q3,
-            //                  state._q_state.q4,
-            //                  (float)bldc.throttles.speed_fl,
-            //                  (float)bldc.throttles.speed_bl,
-            //                  (float)bldc.throttles.speed_fr,
-            //                  (float)bldc.throttles.speed_br };
-            // CDC_Transmit_FS((uint8_t *)data, sizeof(data));
 
             HAL_GPIO_WritePin(STAT1_GPIO_Port, STAT1_Pin, GPIO_PIN_RESET);
             HAL_GPIO_WritePin(STAT2_GPIO_Port, STAT2_Pin, GPIO_PIN_RESET);
@@ -523,7 +420,6 @@ void app(void)
             {
                 // for initial versions, do not even attempt to recover from failure
                 // must reset watchdog though
-
                 if (failsafe_cause & FAILSAFE_TYPE_IMU)
                     HAL_GPIO_TogglePin(STAT1_GPIO_Port, STAT1_Pin);
 
@@ -544,8 +440,6 @@ void app(void)
 
                 delay_ms(100);
             }
-
-            break;
         }
     }
 }
@@ -616,6 +510,105 @@ static void construct_ack(rf_ack_params_t * ack)
     default:
         ack->key = FAILSAFE_KEY;
     }
+}
+
+static void apply_gyro_bias(float w_x, float w_y, float w_z, float * w_x_new, float * w_y_new, float * w_z_new)
+{
+    // copy gyro readings
+    *w_x_new = w_x;
+    *w_y_new = w_y;
+    *w_z_new = w_z;
+
+    // discard first N samples to allow time for IMU to settle
+    // accumulate average sensor reading for second N samples
+    // quadcopter should be powered on while stationary on a level surface to calibrate
+    if (imu_samples_cnt > N_IMU_BIAS_SAMPLES && imu_samples_cnt < 2 * N_IMU_BIAS_SAMPLES)
+    {
+        w_x_bias_accum += w_x;
+        w_y_bias_accum += w_y;
+        w_z_bias_accum += w_z;
+    }
+    else if (imu_samples_cnt == 2 * N_IMU_BIAS_SAMPLES) // calculate bias (average)
+    {
+        w_x_bias = w_x_bias_accum / (float)N_IMU_BIAS_SAMPLES;
+        w_y_bias = w_y_bias_accum / (float)N_IMU_BIAS_SAMPLES;
+        w_z_bias = w_z_bias_accum / (float)N_IMU_BIAS_SAMPLES;
+    }
+
+    // apply bias
+    // if bias has not yet been calculated, there is no change to gyro readings
+    *w_x_new -= w_x_bias;
+    *w_y_new -= w_y_bias;
+    *w_z_new -= w_z_bias;
+}
+
+static void monitor_timeout_status()
+{
+    // save atomic copies before doing timeout checks
+    // this way, last_*_tick cannot update after tick_ms/tick_us has been declared,
+    // which would result in an unsigned overflow, and therefore, timeout
+    uint32_t last_pkt_tick_ms_local = last_pkt_tick_ms;
+    uint32_t last_imu_tick_us_local = last_imu_tick_us;
+    uint32_t last_bar_tick_ms_local = last_bar_tick_ms;
+
+    uint32_t tick_ms = millis_get_tick();
+    uint32_t tick_us = micros_get_tick();
+
+    // if quadcopter sensors or RF communication is disrupted, go into failsafe
+    // mode RF can only go into failsafe if previous communication has been established
+    if (tick_ms - last_pkt_tick_ms_local > RF_FAILSAFE_TIMEOUT_MS && pkt_cnt != 0)
+    {
+        arm_state_quad = ARM_STATE_FAILSAFE;
+        failsafe_cause |= FAILSAFE_TYPE_RF;
+    }
+    if (((tick_us - last_imu_tick_us_local) / 1000) > IMU_FAILSAFE_TIMEOUT_MS)
+    {
+        arm_state_quad = ARM_STATE_FAILSAFE;
+        failsafe_cause |= FAILSAFE_TYPE_IMU;
+    }
+    if (tick_ms - last_bar_tick_ms_local > BAR_FAILSAFE_TIMEOUT_MS)
+    {
+        arm_state_quad = ARM_STATE_FAILSAFE;
+        failsafe_cause |= FAILSAFE_TYPE_BAR;
+    }
+}
+
+static void apply_pid(float w_x_err, float w_y_err, float w_z_err, float * tau_x, float * tau_y, float * tau_z)
+{
+    // convert rate error to torque/speed commands
+    // apply proportional term
+    *tau_x = pkt.kp * w_x_err;
+    *tau_y = pkt.kp * w_y_err;
+    *tau_z = pkt.kp * w_z_err;
+
+    // do not accumulate error when the drone is not moving
+    const uint16_t throttle_min = 200;
+
+    if (pkt.throttle > throttle_min)
+    {
+        w_x_err_sum += w_x_err * prev_dt;
+        w_y_err_sum += w_y_err * prev_dt;
+        w_z_err_sum += w_z_err * prev_dt;
+    }
+
+    // clamp integrals to prevent windup
+    const float w_max_err_sum = 500.0f;
+    w_x_err_sum = clamp(w_x_err_sum, -w_max_err_sum, w_max_err_sum);
+    w_y_err_sum = clamp(w_y_err_sum, -w_max_err_sum, w_max_err_sum);
+    w_z_err_sum = clamp(w_z_err_sum, -w_max_err_sum, w_max_err_sum);
+
+    // do not divide by zero when performing PID
+    if (prev_dt != 0.0f)
+    {
+        *tau_x += pkt.ki * w_x_err_sum + pkt.kd * (w_x_err - last_w_x_err) / prev_dt;
+        *tau_y += pkt.ki * w_y_err_sum + pkt.kd * (w_y_err - last_w_y_err) / prev_dt;
+        *tau_z += pkt.ki * w_z_err_sum + pkt.kd * (w_z_err - last_w_z_err) / prev_dt;
+    }
+
+    // update for next iteration
+    last_w_x_err = w_x_err;
+    last_w_y_err = w_y_err;
+    last_w_z_err = w_z_err;
 }
 
 void bms_callback(bms_handle_t * bms, bms_event_t event)
