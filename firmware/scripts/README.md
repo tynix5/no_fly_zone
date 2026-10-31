@@ -8,4 +8,4 @@ Receives a four-float quaternion packet over serial (in order of q_w, q_x, q_y, 
 Requires no user interaction; simply running the script will verify the orientation_quat quaternion directionality.
 
 ## serial_plotter.py
-A simple script that will receive a serial packet of any size and print them over terminal. Does not require 'sprintf' C function that microcontroller could use to print directly to terminal instead. For this same reason, it also supports receiving floats (since STM32 will not 'sprintf' with floats)
+A simple script that will receive a serial packet of any size and print them over terminal. Does not require `sprintf` C function that microcontroller could use to print directly to terminal instead. For this same reason, it also supports receiving floats (since STM32 will not `sprintf` with floats)
