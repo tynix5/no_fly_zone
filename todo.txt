@@ -1,22 +1,28 @@
 no_fly_zone_remote
-1. add handling if not receiving ack packets
+- None
 
 no_fly_zone
-1. attempt recovery for failure to init
-2. place torque commands into matrix for cleaner math
-3. clean up code and comments
+- attempt recovery for failure to init
+- place torque commands into matrix for cleaner math
+- clean up code and comments
+- after full spin, rolling or pitching in one direction will cause it to move in another
 
 stm32_lib
-1. Match encoder, SSD1306, IIS2MDC with other libraries
-2. clean up encoder implementation --> messy, hard to read
-3. user owns memory and passes it to struct
-4. static asserts
-5. add custom delays in encoder
+- Match encoder, SSD1306, IIS2MDC with other libraries
+- clean up encoder implementation --> messy, hard to read
+- user owns memory and passes it to struct
+- static asserts
+- add custom delays in encoder
 
 Hardware
-1. V2 of remote board with nonvolatile memory for constants, power amplifier, more status LEDs
-2. test all remaining nRF24L01 and STM32F446 chips to see if working
-3. 3d print new enclosure for remote
+- test all remaining nRF24L01 and STM32F446 chips to see if working
 
 Github
-1. Add README for scripts
+- Summarize code sections?
+
+Future Improvements
+- V2 of remote board with nonvolatile memory for constants, power amplifier, more status LEDs
+- 3D print new enclosure for remote
+- Add handling for no_fly_zone_remote if not receiving ACK packets?
+- Find better position for antenna
+- Add magnetometer or GPS for absolute heading
