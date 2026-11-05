@@ -38,12 +38,13 @@ uint32_t adc_samples_cnt = 0;                   // number of group conversions
 uint8_t remote_batt_lvl = 0, quad_batt_lvl = 0; // battery levels
 
 // reference for buffer sizes found in ssd1306.h
-uint8_t oled_buff[OLED_RES_X * OLED_PAGES];                  // pixel buffer
-uint8_t tx_buff[OLED_RES_X * OLED_PAGES + 13];               // TX buffer for DMA I2C transactions
+uint8_t oled_buff[OLED_RES_X * OLED_PAGES];    // pixel buffer
+uint8_t tx_buff[OLED_RES_X * OLED_PAGES + 13]; // TX buffer for DMA I2C transactions
 
-oled_pages_t page = PAGE_BATT_LVL;                           // current OLED page
-uint8_t sw_state = 0;                                        // encoder switch state
+oled_pages_t page = PAGE_BATT_LVL;             // current OLED page
+uint8_t sw_state = 0;                          // encoder switch state
 
+// kp = 30.0f for more aggressive maneuevers
 float kp = 15.0f, ki = 0.3f, kd = 0.5f;                      // preload K values for easier manipulation
 
 IWDG_HandleTypeDef * iwdg;                                   // independent watchdog handler
