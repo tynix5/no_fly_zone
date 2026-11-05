@@ -3,7 +3,6 @@ no_fly_zone_remote
 
 no_fly_zone
 - attempt recovery for failure to init
-- after full spin, rolling or pitching in one direction will cause it to move in another
 
 stm32_lib
 - Match encoder, SSD1306, IIS2MDC with other libraries
@@ -14,9 +13,6 @@ stm32_lib
 
 Hardware
 - test all remaining nRF24L01 and STM32F446 chips to see if working
-
-Github
-- Summarize code sections?
 
 Future Improvements
 - V2 of remote board with nonvolatile memory for constants, power amplifier, more status LEDs
