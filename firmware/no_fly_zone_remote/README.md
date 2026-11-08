@@ -12,13 +12,13 @@ The primary purpose of the no_fly_zone_remote is, as one might guess, to remotel
 
 ## Block Diagram
 <p align="center">
-  <img src="../../screenshots/no_fly_zone_remote_diagram_fig.png" width="2400"><br>
+  <img src="../../screenshots/no_fly_zone_remote_diagram_drawio.png" width="2400"><br>
   <em>Software flowchart (draw.io)</em>
 </p>
 
 ## Additional Features
 ### OLED Features
-The OLED is navigable using both the joysticks and encoder as inputs. Rotating the encoder results in page turning, and certain combinations of inputs allow for extra features. To ARM/DISARM the quadcopter/remote, the user must be on Page 1 and press the encoder while simultaneously holding the left joystick all of the way down. While in ARM mode, the OLED will not be navigable. In order to move to other pages, the remote must be DISARMED. In order to calibrate the joysticks, navigate to Page 2 and press the encoder switch. For a specified period of time, the CPU will monitor the joysticks and check if the current range can be overwritten. On the last page, the user is able to tune specific PID values used by the quadcopter. To tune, the user must pull the right joystick to the right to move between P, I, and D. Once on the desired setting, moving the right joystick up will raise the values, and moving it down will lower it. The distance from the center will determine how large of an increase/decrease each step is.
+The OLED is navigable using both the joysticks and encoder as inputs. Rotating the encoder results in page turning, and certain combinations of inputs allow for extra features. To ARM/DISARM the quadcopter/remote, the user must be on Page 1 and press the encoder while simultaneously holding the left joystick all of the way down. While in ARM mode, the OLED will not be navigable. In order to move to other pages, the remote must be DISARMED. In order to calibrate the joysticks, navigate to Page 2 and press the encoder switch. For a specified period of time, the CPU will monitor the joysticks and check if the current range can be overwritten. On the last page, the user is able to tune specific PID values used by the quadcopter. To tune, the user must pull the right joystick to the right to move between P, I, and D. Once on the desired setting, moving the right joystick up will raise the values, and moving it down will lower it. The distance from the center determines the magnitude of each step.
  
 #### Remote and Quadcopter Battery Level (Page 1)
 <p align="center">

@@ -1,5 +1,5 @@
 # scripts
-A collection of AI-generated Python scripts for code verification and validation.
+A collection of AI-generated Python scripts for code verification and validation. To run these scripts, execute `python [script_name].py`.
 
 ## orientation_quat.py
 Receives a four-float quaternion packet over serial (in order of q_w, q_x, q_y, q_z), and will display the quadcopter's orientation. Can be used to validate q_des packet coming from remote control, and can also be used to validate calculated IMU orientation from no_fly_zone.

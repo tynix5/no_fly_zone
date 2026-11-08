@@ -18,5 +18,6 @@ Future Improvements
 - V2 of remote board with nonvolatile memory for constants, power amplifier, more status LEDs
 - 3D print new enclosure for remote
 - Add handling for no_fly_zone_remote if not receiving ACK packets?
-- Find better position for antenna
+- Find better position for antenna or get smaller antenna
 - Add magnetometer or GPS for absolute heading
+- Test GPS from Rev 1.0
