@@ -522,17 +522,18 @@ static void apply_gyro_bias(float w_x, float w_y, float w_z, float * w_x_new, fl
     // discard first N samples to allow time for IMU to settle
     // accumulate average sensor reading for second N samples
     // quadcopter should be powered on while stationary on a level surface to calibrate
-    if (imu_samples_cnt > N_IMU_BIAS_SAMPLES && imu_samples_cnt < 2 * N_IMU_BIAS_SAMPLES)
+    if (imu_samples_cnt > N_IMU_BIAS_SAMPLES && imu_samples_cnt <= 2 * N_IMU_BIAS_SAMPLES)
     {
         w_x_bias_accum += w_x;
         w_y_bias_accum += w_y;
         w_z_bias_accum += w_z;
-    }
-    else if (imu_samples_cnt == 2 * N_IMU_BIAS_SAMPLES) // calculate bias (average)
-    {
-        w_x_bias = w_x_bias_accum / (float)N_IMU_BIAS_SAMPLES;
-        w_y_bias = w_y_bias_accum / (float)N_IMU_BIAS_SAMPLES;
-        w_z_bias = w_z_bias_accum / (float)N_IMU_BIAS_SAMPLES;
+
+        if (imu_samples_cnt == 2 * N_IMU_BIAS_SAMPLES) // calculate bias (average)
+        {
+            w_x_bias = w_x_bias_accum / (float)N_IMU_BIAS_SAMPLES;
+            w_y_bias = w_y_bias_accum / (float)N_IMU_BIAS_SAMPLES;
+            w_z_bias = w_z_bias_accum / (float)N_IMU_BIAS_SAMPLES;
+        }
     }
 
     // apply bias
